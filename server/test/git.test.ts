@@ -110,6 +110,28 @@ describe("readGitStatus on a real repository", () => {
     await expect(readGitStatus(root)).resolves.toMatchObject({ branch: "main" });
   });
 
+  it("does not rewrite .git/index after a stat-only change (--no-optional-locks)", async () => {
+    const root = makeProject(home, "refresh");
+    const idx = path.join(root, ".git", "index");
+    // 内容は同じまま mtime だけ変える。通常の git status なら index を更新して書き戻す
+    const later = new Date(Date.now() + 5000);
+    fs.utimesSync(path.join(root, "main.typ"), later, later);
+    const before = fs.readFileSync(idx);
+    const beforeStat = fs.statSync(idx);
+    await expect(readGitStatus(root)).resolves.toMatchObject({ uncommitted: 0 });
+    expect(fs.readFileSync(idx).equals(before)).toBe(true);
+    expect(fs.statSync(idx).mtimeMs).toBe(beforeStat.mtimeMs);
+  });
+
+  it("a plain directory inside another repository is not that repository", async () => {
+    const parent = path.join(home, "parent-repo");
+    fs.mkdirSync(path.join(parent, "projects", "child"), { recursive: true });
+    git(parent, "init", "-q");
+    const child = path.join(parent, "projects", "child");
+    await expect(readGitStatus(child)).rejects.toMatchObject({ code: "not-a-repository" });
+    await expect(readGitStatus(child)).rejects.toThrow(/inside another repository/);
+  });
+
   it("explains dubious ownership instead of adding safe.directory", async () => {
     const root = makeProject(home, "owner");
     const before = git(root, "config", "--list", "--show-origin");

@@ -4,7 +4,7 @@ import chokidar, { type FSWatcher } from "chokidar";
 import type { FastifyBaseLogger } from "fastify";
 import type WebSocket from "ws";
 import { loadProjectConfig, PROJECT_NAME_RE, type HostConfig } from "./config.js";
-import { listArticles, sha256, TMP_FILE_RE } from "./files.js";
+import { listArticles, sha256File, TMP_FILE_RE } from "./files.js";
 import { gitDir, GitError, readGitStatus, type GitInfo } from "./git.js";
 
 // プロジェクトのファイル監視と /api/ws への通知（spec 5.3 / 6.4 / 6.5）
@@ -124,8 +124,9 @@ class ProjectWatch {
     this.schedule();
   }
 
-  noteRev(rel: string, rev: string): void {
-    this.revs.set(rel, rev);
+  // 監視が最後に読んだ Git 状態（/api/projects 用）
+  currentGit(): GitState {
+    return JSON.parse(this.lastGit ?? JSON.stringify(EMPTY_GIT)) as GitState;
   }
 
   private schedule(): void {
@@ -204,41 +205,106 @@ class ProjectWatch {
     this.closed = true;
     if (this.timer) clearTimeout(this.timer);
     await this.watcher?.close();
+    await this.flushing;
   }
 }
 
 async function hashFile(abs: string): Promise<string | undefined> {
   try {
+    // シンボリックリンクはたどらない（指す先のファイルの変更として、そちらのパスで通知される）
     const st = await fs.promises.lstat(abs);
     if (!st.isFile()) return undefined;
-    return sha256(await fs.promises.readFile(abs));
+    return await sha256File(abs);
   } catch {
     return undefined;
   }
 }
 
+export interface WatchersOptions {
+  // この間隔で ping し、次の ping までに pong が無ければ切る
+  pingIntervalMs?: number;
+  // 同時接続数の上限
+  maxClients?: number;
+  // 送りきれずに溜まった量がこれを超えたクライアントは切る（読まないクライアントでメモリを食わない）
+  maxBufferedBytes?: number;
+}
+
+type ClientSocket = Pick<WebSocket, "on" | "send" | "ping" | "terminate" | "readyState" | "bufferedAmount" | "OPEN">;
+
 export class Watchers {
-  private clients = new Set<WebSocket>();
+  private clients = new Map<ClientSocket, { alive: boolean }>();
   private projects = new Map<string, Promise<ProjectWatch>>();
   private overrides?: FSWatcher;
+  private pinger?: NodeJS.Timeout;
   private closed = false;
+  readonly opts: Required<WatchersOptions>;
 
   constructor(
     readonly host: HostConfig,
     readonly log: FastifyBaseLogger,
-  ) {}
+    opts: WatchersOptions = {},
+  ) {
+    this.opts = { pingIntervalMs: 30_000, maxClients: 16, maxBufferedBytes: 4 * 1024 * 1024, ...opts };
+  }
 
-  addClient(ws: WebSocket): void {
-    this.clients.add(ws);
-    ws.on("close", () => this.clients.delete(ws));
-    ws.on("error", () => this.clients.delete(ws));
+  canAccept(): boolean {
+    return !this.closed && this.clients.size < this.opts.maxClients;
+  }
+
+  addClient(ws: ClientSocket): void {
+    const st = { alive: true };
+    this.clients.set(ws, st);
+    ws.on("close", () => this.dropClient(ws));
+    ws.on("error", () => this.dropClient(ws));
+    ws.on("pong", () => (st.alive = true));
     // クライアントからの送信は今は使わない
     ws.on("message", () => undefined);
+    if (!this.pinger) {
+      this.pinger = setInterval(() => this.pingAll(), this.opts.pingIntervalMs);
+      this.pinger.unref();
+    }
+  }
+
+  private dropClient(ws: ClientSocket): void {
+    this.clients.delete(ws);
+    if (this.clients.size === 0 && this.pinger) {
+      clearInterval(this.pinger);
+      this.pinger = undefined;
+    }
+  }
+
+  private pingAll(): void {
+    for (const [ws, st] of this.clients) {
+      if (!st.alive) {
+        ws.terminate();
+        this.dropClient(ws);
+        continue;
+      }
+      st.alive = false;
+      ws.ping();
+    }
   }
 
   broadcast(ev: StudioEvent): void {
     const msg = JSON.stringify(ev);
-    for (const ws of this.clients) if (ws.readyState === ws.OPEN) ws.send(msg);
+    for (const ws of [...this.clients.keys()]) {
+      if (ws.readyState !== ws.OPEN) continue;
+      if (ws.bufferedAmount > this.opts.maxBufferedBytes) {
+        this.log.warn("closing a /api/ws client that does not read its messages");
+        ws.terminate();
+        this.dropClient(ws);
+        continue;
+      }
+      ws.send(msg);
+    }
+  }
+
+  // 接続中の /api/ws を切る。server.close() の前に呼ぶ（upgrade 済みのソケットが残ると close が終わらない）
+  closeClients(): void {
+    for (const ws of this.clients.keys()) ws.terminate();
+    this.clients.clear();
+    if (this.pinger) clearInterval(this.pinger);
+    this.pinger = undefined;
   }
 
   // $TYPST_STUDIO_HOME/projects/ のディレクトリ名
@@ -285,18 +351,13 @@ export class Watchers {
       await new Promise<void>((r) => this.overrides!.once("ready", () => r()));
     }
     await Promise.allSettled(
-      this.listProjectNames().map((n) => this.ensure(n, fs.realpathSync(path.join(this.host.home, "projects", n)))),
+      this.listProjectNames().map(async (n) => this.ensure(n, fs.realpathSync(path.join(this.host.home, "projects", n)))),
     );
-  }
-
-  noteRev(name: string, rel: string, rev: string): void {
-    void this.projects.get(name)?.then((pw) => pw.noteRev(rel, rev), () => undefined);
   }
 
   async close(): Promise<void> {
     this.closed = true;
-    for (const ws of this.clients) ws.terminate();
-    this.clients.clear();
+    this.closeClients();
     await this.overrides?.close();
     const all = [...this.projects.values()];
     this.projects.clear();

@@ -24,6 +24,43 @@ export function sha256(buf: Buffer): string {
   return crypto.createHash("sha256").update(buf).digest("hex");
 }
 
+// ファイルの sha256 を少しずつ読んで計算する（大きなファイルを丸ごとメモリに載せない）
+export async function sha256File(abs: string): Promise<string> {
+  const h = crypto.createHash("sha256");
+  for await (const chunk of fs.createReadStream(abs, { highWaterMark: 1024 * 1024 })) h.update(chunk as Buffer);
+  return h.digest("hex");
+}
+
+// fs のエラーを API のエラーにする（ENOTDIR・ENAMETOOLONG などを 500 にしない）
+function fsError(e: unknown, rel: string): unknown {
+  if (e instanceof FileError) return e;
+  switch ((e as NodeJS.ErrnoException).code) {
+    case "ENOENT":
+    case "ENOTDIR":
+      return new FileError(404, `"${rel}" does not exist`);
+    case "ENAMETOOLONG":
+      return new FileError(400, `"${rel}" is too long`);
+    case "ELOOP":
+      return new FileError(403, `"${rel}" has too many levels of symbolic links`);
+    case "EACCES":
+    case "EPERM":
+    case "EROFS":
+      return new FileError(403, `"${rel}" is not accessible`);
+    case "EISDIR":
+      return new FileError(400, `"${rel}" is not a regular file`);
+    default:
+      return e;
+  }
+}
+
+function mapFs<T>(rel: string, fn: () => T): T {
+  try {
+    return fn();
+  } catch (e) {
+    throw fsError(e, rel);
+  }
+}
+
 // プロジェクトのディレクトリ（実パス）。設定が読めなくても返す（壊れた typst-studio.toml を直せるように）
 export function projectRoot(host: HostConfig, name: string): string {
   if (!PROJECT_NAME_RE.test(name)) throw new FileError(400, `invalid project name "${name}"`);
@@ -32,17 +69,23 @@ export function projectRoot(host: HostConfig, name: string): string {
   return fs.realpathSync(dir);
 }
 
+// Linux の PATH_MAX / NAME_MAX
+const MAX_PATH_BYTES = 4096;
+const MAX_NAME_BYTES = 255;
+
 const isGitSegment = (s: string) => s.toLowerCase() === ".git";
 
 // API で受け取るリポジトリ相対パスの形を検証する（実在は問わない）
 export function checkRelPath(rel: unknown): string {
   if (typeof rel !== "string" || rel === "") throw new FileError(400, '"path" (string) is required');
   if (rel.includes("\0")) throw new FileError(400, "path must not contain NUL");
+  if (Buffer.byteLength(rel) > MAX_PATH_BYTES) throw new FileError(400, "path is too long");
   if (path.isAbsolute(rel)) throw new FileError(400, `"${rel}" must be a relative path inside the project`);
   const segs = rel.split("/");
   if (segs.includes("..")) throw new FileError(400, `"${rel}" must not contain ".."`);
   if (path.posix.normalize(rel) !== rel || rel.endsWith("/")) throw new FileError(400, `"${rel}" must be a normalized path`);
   if (segs.some(isGitSegment)) throw new FileError(403, `"${rel}" is inside .git/`);
+  if (segs.some((x) => Buffer.byteLength(x) > MAX_NAME_BYTES)) throw new FileError(400, "a path segment is too long");
   return rel;
 }
 
@@ -61,6 +104,12 @@ function checkRealNotGit(root: string, real: string, rel: string): void {
   if (r.split(path.sep).some(isGitSegment)) throw new FileError(403, `"${rel}" points inside .git/`);
 }
 
+// 実パスがルート配下か（rename 直前の再検査用）
+function checkRealInside(root: string, real: string, rel: string): void {
+  if (real !== root && !real.startsWith(root + path.sep)) throw new FileError(403, `"${rel}" points outside the project`);
+  checkRealNotGit(root, real, rel);
+}
+
 interface Target {
   // 書き込み先の実パス（シンボリックリンクなら指す先）
   real: string;
@@ -71,6 +120,8 @@ function resolveTarget(root: string, rel: string): Target {
   const abs = path.join(root, rel);
   const lst = fs.lstatSync(abs, { throwIfNoEntry: false });
   if (lst) {
+    // 宙ぶらりんのシンボリックリンク（指す先に新規作成させない）
+    if (lst.isSymbolicLink() && !fs.existsSync(abs)) throw new FileError(403, `"${rel}" is a dangling symbolic link`);
     inside(root, rel, "path");
     const real = fs.realpathSync(abs);
     checkRealNotGit(root, real, rel);
@@ -92,7 +143,8 @@ function resolveTarget(root: string, rel: string): Target {
   return { real: path.join(parent, path.posix.basename(rel)), exists: false };
 }
 
-const utf8 = new TextDecoder("utf-8", { fatal: true });
+// ignoreBOM: 先頭の BOM を内容として残す（読んで保存するだけで BOM が消えないように）
+const utf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 function decode(buf: Buffer, rel: string): string {
   try {
@@ -110,15 +162,18 @@ export interface FileContent {
 
 export function readProjectFile(root: string, relIn: unknown): FileContent {
   const rel = checkRelPath(relIn);
-  if (!fs.lstatSync(path.join(root, rel), { throwIfNoEntry: false })) throw new FileError(404, `"${rel}" does not exist`);
-  const t = resolveTarget(root, rel);
-  const size = fs.statSync(t.real).size;
-  if (size > MAX_FILE_BYTES) throw new FileError(413, `"${rel}" is larger than ${MAX_FILE_BYTES} bytes`);
-  const buf = fs.readFileSync(t.real);
-  return { path: rel, content: decode(buf, rel), rev: sha256(buf) };
+  return mapFs(rel, () => {
+    // 無いファイルでも、親が .git の中やルートの外なら 403（存在を漏らさない）
+    const t = resolveTarget(root, rel);
+    if (!t.exists) throw new FileError(404, `"${rel}" does not exist`);
+    const size = fs.statSync(t.real).size;
+    if (size > MAX_FILE_BYTES) throw new FileError(413, `"${rel}" is larger than ${MAX_FILE_BYTES} bytes`);
+    const buf = fs.readFileSync(t.real);
+    return { path: rel, content: decode(buf, rel), rev: sha256(buf) };
+  });
 }
 
-// 同じファイルへの書き込みは studio の中で順に行う（rev の確認から rename までの間に割り込ませない）
+// 書き込みはプロジェクトごとに studio の中で順に行う（パスの解決・rev の確認から rename までの間に割り込ませない）
 const writeQueues = new Map<string, Promise<unknown>>();
 
 function serial<T>(key: string, fn: () => T): Promise<T> {
@@ -142,14 +197,22 @@ export function writeProjectFile(root: string, body: { path?: unknown; content?:
   if (/\p{Cs}/u.test(content)) throw new FileError(415, '"content" is not valid Unicode text');
   const buf = Buffer.from(content, "utf8");
   if (buf.length > MAX_FILE_BYTES) throw new FileError(413, `content is larger than ${MAX_FILE_BYTES} bytes`);
-  const t = resolveTarget(root, rel);
 
-  return serial(t.real, () => {
+  return serial(root, () => mapFs(rel, () => {
+    const t = resolveTarget(root, rel);
     let cur: Buffer | undefined;
     let mode: number | undefined;
     const st = fs.statSync(t.real, { throwIfNoEntry: false });
     if (st) {
       if (!st.isFile()) throw new FileError(400, `"${rel}" is not a regular file`);
+      // 読み込みの上限を超えるファイルは読まずに断る
+      if (st.size > MAX_FILE_BYTES) throw new FileError(413, `"${rel}" on disk is larger than ${MAX_FILE_BYTES} bytes`);
+      // 読み取り専用（0444 など）のファイルは上書きしない
+      try {
+        fs.accessSync(t.real, fs.constants.W_OK);
+      } catch {
+        throw new FileError(403, `"${rel}" is not writable`);
+      }
       cur = fs.readFileSync(t.real);
       mode = st.mode & 0o7777;
     }
@@ -175,17 +238,27 @@ export function writeProjectFile(root: string, body: { path?: unknown; content?:
         fs.writeFileSync(fd, buf);
         // umask で落ちたビットを戻す（元のパーミッションを保つ）
         if (mode !== undefined) fs.fchmodSync(fd, mode);
+        // 所有者・グループが自分と違うファイルは、同じ所有者で置き換えられるときだけ書く
+        if (st && (st.uid !== process.getuid?.() || st.gid !== process.getgid?.())) {
+          try {
+            fs.fchownSync(fd, st.uid, st.gid);
+          } catch {
+            throw new FileError(403, `"${rel}" is owned by another user or group; refusing to change its owner`);
+          }
+        }
         fs.fsyncSync(fd);
       } finally {
         fs.closeSync(fd);
       }
+      // rename 直前に、書き込み先のディレクトリがまだルート配下か確かめる（途中でリンクに差し替えられていないか）
+      checkRealInside(root, fs.realpathSync(path.dirname(tmp)), rel);
       fs.renameSync(tmp, t.real);
     } catch (e) {
       fs.rmSync(tmp, { force: true });
       throw e;
     }
     return { rev: sha256(buf) };
-  });
+  }));
 }
 
 // articles.glob に一致するファイル（リポジトリ相対、ソート済み）
@@ -199,7 +272,16 @@ export async function listArticles(project: ProjectConfig): Promise<{ path: stri
     },
   })) {
     const rel = p.split(path.sep).join("/");
-    if (fs.statSync(path.join(project.root, rel), { throwIfNoEntry: false })?.isFile()) out.push(rel);
+    // glob が {..,x} などでルートの外を指しても一覧に出さない。外向きのディレクトリリンク経由も除く
+    if (path.isAbsolute(rel) || rel.split("/").includes("..")) continue;
+    try {
+      checkRelPath(rel);
+      const abs = inside(project.root, rel, "articles.glob");
+      checkRealNotGit(project.root, fs.realpathSync(abs), rel);
+      if (fs.statSync(abs).isFile()) out.push(rel);
+    } catch {
+      continue;
+    }
   }
   out.sort();
   return out.map((p) => ({ path: p }));

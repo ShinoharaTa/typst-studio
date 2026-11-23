@@ -3,9 +3,9 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp, type App } from "../src/app.js";
 import { parseHostConfig, type HostConfig } from "../src/config.js";
-import { MAX_FILE_BYTES, sha256 } from "../src/files.js";
+import { MAX_FILE_BYTES, sha256, sha256File } from "../src/files.js";
 import { NoneDriver } from "../src/limits/none.js";
-import { makeHome, makeProject } from "./helpers/repo.js";
+import { git, makeHome, makeProject } from "./helpers/repo.js";
 
 process.env.LOG_LEVEL = "silent";
 
@@ -190,6 +190,146 @@ describe("path escapes are rejected (spec 7.3)", () => {
     const res = await put({ path: "outdir/x.typ", content: "x", baseRev: null });
     expect(res.statusCode).toBe(403);
     expect(fs.readdirSync(path.join(home, "outdir"))).toEqual([]);
+  });
+});
+
+describe("review fixes", () => {
+  it("keeps a UTF-8 BOM through read and save (bytes unchanged)", async () => {
+    const bytes = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from("= BOM\n")]);
+    fs.writeFileSync(path.join(root, "bom.typ"), bytes);
+    const f = (await get("bom.typ")).json() as { content: string; rev: string };
+    expect(f.content.charCodeAt(0)).toBe(0xfeff);
+    expect(f.rev).toBe(sha256(bytes));
+    const res = await put({ path: "bom.typ", content: f.content, baseRev: f.rev });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { rev: string }).rev).toBe(f.rev);
+    expect(fs.readFileSync(path.join(root, "bom.typ")).equals(bytes)).toBe(true);
+  });
+
+  it("concurrent PUTs with the same baseRev: exactly one 200, the rest 409", async () => {
+    fs.writeFileSync(path.join(root, "race.typ"), "0\n");
+    const { rev } = (await get("race.typ")).json() as { rev: string };
+    const results = await Promise.all(
+      Array.from({ length: 8 }, (_, i) => put({ path: "race.typ", content: `w${i}\n`, baseRev: rev })),
+    );
+    const codes = results.map((r) => r.statusCode).sort();
+    expect(codes).toEqual([200, 409, 409, 409, 409, 409, 409, 409]);
+    const winner = results.find((r) => r.statusCode === 200)!.json() as { rev: string };
+    expect(sha256(fs.readFileSync(path.join(root, "race.typ")))).toBe(winner.rev);
+  });
+
+  it("rejects a dangling symlink and does not create its target", async () => {
+    const target = path.join(home, "dangling-target.typ");
+    fs.symlinkSync(target, path.join(root, "dangling.typ"));
+    fs.symlinkSync(path.join(root, "nope-inside.typ"), path.join(root, "dangling-in.typ"));
+    for (const p of ["dangling.typ", "dangling-in.typ"]) {
+      expect((await get(p)).statusCode).toBe(403);
+      expect((await put({ path: p, content: "x", baseRev: null })).statusCode).toBe(403);
+    }
+    expect(fs.existsSync(target)).toBe(false);
+    expect(fs.existsSync(path.join(root, "nope-inside.typ"))).toBe(false);
+  });
+
+  it("rejects writes through a directory link into .git", async () => {
+    fs.symlinkSync(path.join(root, ".git"), path.join(root, "gitdir-link"));
+    fs.symlinkSync(path.join(root, ".git", "hooks"), path.join(root, "hooks-link"));
+    for (const p of ["gitdir-link/config", "hooks-link/pre-commit", "gitdir-link/new"]) {
+      expect([p, (await put({ path: p, content: "x", baseRev: null })).statusCode]).toEqual([p, 403]);
+      expect([p, (await get(p)).statusCode]).toEqual([p, 403]);
+    }
+    expect(fs.existsSync(path.join(root, ".git", "hooks", "pre-commit"))).toBe(false);
+  });
+
+  it("maps ENOTDIR / ENAMETOOLONG / ELOOP / EACCES to 4xx, not 500", async () => {
+    fs.symlinkSync("loop-b", path.join(root, "loop-a"));
+    fs.symlinkSync("loop-a", path.join(root, "loop-b"));
+    fs.mkdirSync(path.join(root, "locked"));
+    fs.writeFileSync(path.join(root, "locked", "x.typ"), "x");
+    fs.chmodSync(path.join(root, "locked"), 0o000);
+    try {
+      const cases: [string, number][] = [
+        ["main.typ/x", 404],
+        ["a".repeat(300) + ".typ", 400],
+        [Array.from({ length: 30 }, () => "b".repeat(200)).join("/"), 400],
+        ["loop-a", 403],
+        ["loop-a/x", 403],
+        ["locked/x.typ", 403],
+      ];
+      for (const [p, code] of cases) {
+        const g = await get(encodeURIComponent(p));
+        expect([p.slice(0, 20), "GET", g.statusCode]).toEqual([p.slice(0, 20), "GET", code]);
+        const w = await put({ path: p, content: "x", baseRev: null });
+        expect([p.slice(0, 20), "PUT", w.statusCode]).toEqual([p.slice(0, 20), "PUT", code]);
+      }
+    } finally {
+      fs.chmodSync(path.join(root, "locked"), 0o755);
+    }
+  });
+
+  it("does not overwrite a read-only (0444) file", async () => {
+    fs.writeFileSync(path.join(root, "ro.typ"), "ro\n");
+    fs.chmodSync(path.join(root, "ro.typ"), 0o444);
+    const { rev } = (await get("ro.typ")).json() as { rev: string };
+    expect((await put({ path: "ro.typ", content: "rw\n", baseRev: rev })).statusCode).toBe(403);
+    expect(fs.readFileSync(path.join(root, "ro.typ"), "utf8")).toBe("ro\n");
+  });
+
+  it("sha256File (streamed, used by the watcher) matches sha256 of the bytes", async () => {
+    const buf = Buffer.alloc(3 * 1024 * 1024 + 7, 0x61);
+    fs.writeFileSync(path.join(home, "stream.bin"), buf);
+    expect(await sha256File(path.join(home, "stream.bin"))).toBe(sha256(buf));
+  });
+
+  it("413 on PUT when the file on disk is over 2MB (without reading it)", async () => {
+    fs.writeFileSync(path.join(root, "huge.bin"), "");
+    fs.truncateSync(path.join(root, "huge.bin"), MAX_FILE_BYTES + 1);
+    expect((await put({ path: "huge.bin", content: "x", baseRev: "0".repeat(64) })).statusCode).toBe(413);
+    expect((await get("huge.bin")).statusCode).toBe(413);
+  });
+
+  it("articles.glob cannot list names outside the project, or through an outward directory link", async () => {
+    const r = path.join(home, "projects", "globby");
+    fs.mkdirSync(path.join(r, "articles", "author-a"), { recursive: true });
+    fs.writeFileSync(path.join(r, "main.typ"), "= B\n");
+    fs.writeFileSync(path.join(r, "articles", "author-a", "article.typ"), "= A\n");
+    fs.writeFileSync(path.join(r, "typst-studio.toml"), '[project]\ntypst = "0.14.2"\n[book]\nentry = "main.typ"\n[articles]\nglob = "{..,articles}/**/*.typ"\n');
+    fs.mkdirSync(path.join(home, "ext"));
+    fs.writeFileSync(path.join(home, "ext", "leak.typ"), "x");
+    fs.symlinkSync(path.join(home, "ext"), path.join(r, "articles", "ext"));
+    const res = await a.app.inject({ method: "GET", url: "/api/projects/globby/articles" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual([{ path: "articles/author-a/article.typ" }]);
+  });
+
+  it("a project that is not a repository does not report its parent repository", async () => {
+    const h = makeHome();
+    try {
+      git(h, "init", "-q");
+      const r = path.join(h, "projects", "plain");
+      fs.mkdirSync(path.join(r, "articles"), { recursive: true });
+      fs.writeFileSync(path.join(r, "main.typ"), "= B\n");
+      fs.writeFileSync(path.join(r, "typst-studio.toml"), '[project]\ntypst = "0.14.2"\n[book]\nentry = "main.typ"\n[articles]\nglob = "articles/*.typ"\n');
+      const host = parseHostConfig({ auth: { mode: "none" } }, { home: h, dist: h, container: false, where: "config.toml" });
+      const b = buildApp(host, new NoneDriver(path.join(h, "state", "children")));
+      try {
+        const list = (await b.app.inject({ method: "GET", url: "/api/projects" })).json() as Record<string, unknown>[];
+        expect(list).toHaveLength(1);
+        expect(list[0]).toMatchObject({ name: "plain", branch: null, uncommitted: null });
+        expect(list[0].gitError).toMatch(/not a git repository/);
+      } finally {
+        await b.app.close();
+      }
+    } finally {
+      fs.rmSync(h, { recursive: true, force: true });
+    }
+  });
+
+  it("/api/projects does not 500 when a project cannot be resolved", async () => {
+    // projects/ 直下の、指す先の無いディレクトリリンク（一覧には出ないこと）と、読めないディレクトリ
+    fs.symlinkSync(path.join(home, "no-such-dir"), path.join(home, "projects", "gone"));
+    const res = await a.app.inject({ method: "GET", url: "/api/projects" });
+    expect(res.statusCode).toBe(200);
+    fs.rmSync(path.join(home, "projects", "gone"));
   });
 });
 

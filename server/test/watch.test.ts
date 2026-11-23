@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
@@ -7,6 +8,8 @@ import { buildApp, type App } from "../src/app.js";
 import { parseHostConfig } from "../src/config.js";
 import { sha256 } from "../src/files.js";
 import { NoneDriver } from "../src/limits/none.js";
+import { Watchers } from "../src/watch.js";
+import type { FastifyBaseLogger } from "fastify";
 import { git, makeHome, makeProject, PROJECT_TOML } from "./helpers/repo.js";
 
 process.env.LOG_LEVEL = "silent";
@@ -185,5 +188,145 @@ describe("/api/ws notifications", () => {
         ws.once("unexpected-response", (_q, r) => rej(new Error(`status ${r.statusCode}`)));
       }),
     ).rejects.toThrow("status 404");
+  });
+});
+
+describe("review fixes (/api/ws)", () => {
+  let home: string;
+  let root: string;
+  beforeAll(() => {
+    home = makeHome();
+    root = makeProject(home);
+  });
+  afterAll(() => fs.rmSync(home, { recursive: true, force: true }));
+
+  const start = async (auth: Record<string, unknown>, ws?: Parameters<typeof buildApp>[2]) => {
+    const host = parseHostConfig({ server: { public_url: PUBLIC }, auth }, { home, dist: home, container: false, where: "config.toml" });
+    const a = buildApp(host, new NoneDriver(path.join(home, "state", "children")), ws);
+    await a.app.listen({ host: "127.0.0.1", port: 0 });
+    await a.watchers.startAll();
+    return { a, port: (a.app.server.address() as AddressInfo).port };
+  };
+
+  it("app.close() returns while a /api/ws client is still connected", async () => {
+    const { a, port } = await start({ mode: "external" });
+    const c = await connect(port, PUBLIC);
+    const closed = new Promise((r) => c.ws.once("close", r));
+    const t0 = Date.now();
+    await a.app.close();
+    expect(Date.now() - t0).toBeLessThan(3000);
+    await closed;
+  });
+
+  it("a GET right after an external change does not swallow file-changed for other clients", async () => {
+    const { a, port } = await start({ mode: "external" });
+    try {
+      const c = await connect(port, PUBLIC);
+      fs.writeFileSync(path.join(root, "main.typ"), "= raced\n");
+      // デバウンス中に別のクライアントが読む
+      const f = (await a.app.inject({ method: "GET", url: "/api/projects/sample-book/file?path=main.typ" })).json() as { rev: string };
+      const fc = await c.waitFor((m) => m.type === "file-changed" && m.path === "main.typ");
+      expect(fc.rev).toBe(f.rev);
+      c.ws.close();
+    } finally {
+      await a.app.close();
+    }
+  });
+
+  it("limits the number of /api/ws connections", async () => {
+    const { a, port } = await start({ mode: "external" }, { ws: { maxClients: 2 } });
+    try {
+      const c1 = await connect(port, PUBLIC);
+      const c2 = await connect(port, PUBLIC);
+      await expect(connect(port, PUBLIC)).rejects.toThrow("status 503");
+      c1.ws.close();
+      await new Promise((r) => c1.ws.once("close", r));
+      await sleep(50);
+      const c3 = await connect(port, PUBLIC);
+      c2.ws.close();
+      c3.ws.close();
+    } finally {
+      await a.app.close();
+    }
+  });
+
+  it("auth.mode = tailscale: /api/ws needs an allowed login and the Origin", async () => {
+    const { a, port } = await start({ mode: "tailscale", allow_users: ["author-a@example.com"] });
+    const open = (headers: Record<string, string>) =>
+      new Promise<number>((res, rej) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${port}/api/ws`, { headers });
+        ws.once("open", () => {
+          ws.close();
+          res(101);
+        });
+        ws.once("unexpected-response", (_q, r) => res(r.statusCode ?? 0));
+        ws.once("error", rej);
+      });
+    try {
+      expect(await open({ origin: PUBLIC })).toBe(401);
+      expect(await open({ origin: PUBLIC, "tailscale-user-login": "someone@example.com" })).toBe(403);
+      expect(await open({ "tailscale-user-login": "author-a@example.com" })).toBe(403);
+      expect(await open({ origin: "https://evil.example", "tailscale-user-login": "author-a@example.com" })).toBe(403);
+      expect(await open({ origin: PUBLIC, "tailscale-user-login": "author-a@example.com" })).toBe(101);
+    } finally {
+      await a.app.close();
+    }
+  });
+});
+
+// ping / 送信の溜まりすぎは偽のソケットで確かめる
+class FakeSocket extends EventEmitter {
+  readonly OPEN = 1;
+  readyState = 1;
+  bufferedAmount = 0;
+  pings = 0;
+  sent: string[] = [];
+  terminated = false;
+  ping(): void {
+    this.pings++;
+  }
+  send(m: string): void {
+    this.sent.push(m);
+  }
+  terminate(): void {
+    this.terminated = true;
+    this.readyState = 3;
+    this.emit("close");
+  }
+}
+
+describe("Watchers client handling", () => {
+  const host = parseHostConfig({}, { home: "/nonexistent", dist: "/nonexistent", container: false, where: "config.toml" });
+  const log = { warn: () => undefined, error: () => undefined, info: () => undefined } as unknown as FastifyBaseLogger;
+
+  it("terminates a client that does not answer ping, keeps one that does", async () => {
+    const w = new Watchers(host, log, { pingIntervalMs: 30 });
+    const silent = new FakeSocket();
+    const alive = new FakeSocket();
+    alive.ping = function () {
+      this.pings++;
+      setImmediate(() => this.emit("pong"));
+    };
+    w.addClient(silent as never);
+    w.addClient(alive as never);
+    await sleep(150);
+    expect(silent.terminated).toBe(true);
+    expect(alive.terminated).toBe(false);
+    expect(alive.pings).toBeGreaterThan(2);
+    await w.close();
+  });
+
+  it("terminates a client whose send buffer is over the limit", async () => {
+    const w = new Watchers(host, log, { maxBufferedBytes: 100 });
+    const slow = new FakeSocket();
+    const ok = new FakeSocket();
+    slow.bufferedAmount = 101;
+    w.addClient(slow as never);
+    w.addClient(ok as never);
+    w.broadcast({ type: "articles-changed", project: "p" });
+    expect(slow.terminated).toBe(true);
+    expect(slow.sent).toEqual([]);
+    expect(ok.sent).toHaveLength(1);
+    await w.close();
   });
 });

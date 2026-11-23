@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import fs from "node:fs";
 
 // Git の読み取り（spec 5.2）。studio が git を呼ぶのはこのファイルだけ。
 // 許可するのは status と rev-parse の読み取りだけで、書き込み系（add / commit / checkout / fetch ...）は呼べない
@@ -38,7 +39,6 @@ function gitEnv(): NodeJS.ProcessEnv {
   env.LC_ALL = "C";
   env.LANGUAGE = "C";
   env.GIT_TERMINAL_PROMPT = "0";
-  env.GIT_OPTIONAL_LOCKS = "0";
   return env;
 }
 
@@ -99,11 +99,25 @@ export function parseStatus(out: string): GitInfo {
   return info;
 }
 
-export async function readGitStatus(root: string): Promise<GitInfo> {
-  return parseStatus(await runGit(root, "status", ["--porcelain=v2", "--branch"]));
+// root 自身がリポジトリの最上位であることを確かめ、.git の実体を返す（.git がファイルの worktree / submodule でも正しい場所）。
+// root がリポジトリでなく、親ディレクトリのリポジトリの中にあるだけなら、親の状態を返さないようにエラーにする
+export async function gitDir(root: string): Promise<string> {
+  const [top, dir] = (await runGit(root, "rev-parse", ["--show-toplevel", "--absolute-git-dir"])).trim().split("\n");
+  if (!top || !dir) throw new GitError("not-a-repository", `${root} is not a git repository`);
+  const real = (p: string) => {
+    try {
+      return fs.realpathSync(p);
+    } catch {
+      return p;
+    }
+  };
+  if (real(top) !== real(root)) {
+    throw new GitError("not-a-repository", `${root} is not a git repository (it is inside another repository: ${top})`);
+  }
+  return dir;
 }
 
-// .git の実体（.git がファイルの worktree / submodule でも正しい場所）
-export async function gitDir(root: string): Promise<string> {
-  return (await runGit(root, "rev-parse", ["--absolute-git-dir"])).trim();
+export async function readGitStatus(root: string): Promise<GitInfo> {
+  await gitDir(root);
+  return parseStatus(await runGit(root, "status", ["--porcelain=v2", "--branch"]));
 }
