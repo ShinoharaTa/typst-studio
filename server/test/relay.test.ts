@@ -8,8 +8,8 @@ describe("rewriteUpgradeHeaders", () => {
   it("replaces Origin and Host with the loopback data plane", () => {
     const h = rewriteUpgradeHeaders(
       [
-        "Host", "studio.example.ts.net",
-        "Origin", "https://studio.example.ts.net",
+        "Host", "studio.example.test",
+        "Origin", "https://studio.example.test",
         "Upgrade", "websocket",
         "Connection", "Upgrade",
         "Sec-WebSocket-Key", "abc",
@@ -41,7 +41,7 @@ describe("relayUpgrade", () => {
     });
     await new Promise((r) => upstream.once("listening", r));
     const upPort = (upstream.address() as AddressInfo).port;
-    upstream.on("connection", (ws, req) => ws.send(`origin=${req.headers.origin}`));
+    upstream.on("connection", (ws, req) => ws.send(`origin=${req.headers.origin} path=${req.url}`));
     closers.push(() => upstream.close());
 
     let opened = 0;
@@ -54,7 +54,7 @@ describe("relayUpgrade", () => {
     const frontPort = (front.address() as AddressInfo).port;
     closers.push(() => front.close());
 
-    const origin = "https://studio.example.ts.net";
+    const origin = "https://studio.example.test";
     // 直接だと切られる
     await expect(
       new Promise((res, rej) => {
@@ -65,12 +65,13 @@ describe("relayUpgrade", () => {
     ).rejects.toThrow();
 
     // 中継越しだと通り、上流には付け替えた Origin が届く
-    const ws = new WebSocket(`ws://127.0.0.1:${frontPort}/`, { origin });
+    const ws = new WebSocket(`ws://127.0.0.1:${frontPort}/other/path?x=1`, { origin });
     const msg = await new Promise<string>((res, rej) => {
       ws.once("message", (d) => res(d.toString()));
       ws.once("error", rej);
     });
-    expect(msg).toBe(`origin=http://127.0.0.1:${upPort}`);
+    // 上流へのパスは / に固定し、クエリだけ渡す
+    expect(msg).toBe(`origin=http://127.0.0.1:${upPort} path=/?x=1`);
     expect(opened).toBe(1);
     ws.close();
     await new Promise((r) => ws.once("close", r));

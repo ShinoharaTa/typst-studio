@@ -1,5 +1,7 @@
 import http from "node:http";
-import type { AddressInfo } from "node:net";
+import os from "node:os";
+import path from "node:path";
+import net, { type AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { checkAccess } from "../src/auth.js";
@@ -10,7 +12,7 @@ import { rewriteUpgradeHeaders } from "../src/preview/relay.js";
 process.env.LOG_LEVEL = "silent";
 
 const ctx = { home: "/h", dist: "/h", container: false, where: "config.toml" };
-const PUBLIC = "https://studio.example.ts.net:8445";
+const PUBLIC = "https://studio.example.test:8445";
 const tailscale = (publicUrl = PUBLIC): HostConfig =>
   parseHostConfig(
     { server: { public_url: publicUrl }, auth: { mode: "tailscale", allow_users: ["author-a@example.com"] } },
@@ -48,6 +50,24 @@ describe("checkAccess (spec 7.2)", () => {
   it("does not authenticate in auth.mode = none", () => {
     expect(checkAccess(none(), get("/api/preview/status")).ok).toBe(true);
   });
+
+  it("rejects paths that change when normalized with 400 (no bypass of the header-less exception)", () => {
+    for (const p of [
+      "/x/../healthz",
+      "/./healthz",
+      "/%2e/healthz",
+      "/%2E%2E/healthz",
+      "/api/../mcp",
+      "//x/healthz",
+      "http://x/healthz",
+      "healthz",
+    ]) {
+      expect(checkAccess(tailscale(), get(p)), p).toMatchObject({ ok: false, status: 400 });
+      expect(checkAccess(none(), get(p)), p).toMatchObject({ ok: false, status: 400 });
+    }
+    // 正規化しても変わらないパーセントエンコードは通す
+    expect(checkAccess(tailscale(), get("/api/files/%E3%81%82", allowed)).ok).toBe(true);
+  });
 });
 
 describe("checkAccess Origin (spec 7.3)", () => {
@@ -58,7 +78,7 @@ describe("checkAccess Origin (spec 7.3)", () => {
   });
 
   it("rejects other origins with 403", () => {
-    for (const origin of ["https://evil.example", "https://studio.example.ts.net", "http://127.0.0.1:8796", "null"]) {
+    for (const origin of ["https://evil.example", "https://studio.example.test", "http://127.0.0.1:8796", "null"]) {
       expect(checkAccess(tailscale(), post("/api/preview/stop", { ...allowed, origin }))).toMatchObject({
         ok: false,
         status: 403,
@@ -68,8 +88,8 @@ describe("checkAccess Origin (spec 7.3)", () => {
   });
 
   it("follows public_url", () => {
-    const h = tailscale("https://other.example.ts.net");
-    expect(checkAccess(h, post("/api/preview/stop", { ...allowed, origin: "https://other.example.ts.net" })).ok).toBe(true);
+    const h = tailscale("https://other.example.test");
+    expect(checkAccess(h, post("/api/preview/stop", { ...allowed, origin: "https://other.example.test" })).ok).toBe(true);
     expect(checkAccess(h, post("/api/preview/stop", { ...allowed, origin: PUBLIC })).ok).toBe(false);
   });
 
@@ -86,11 +106,32 @@ describe("checkAccess Origin (spec 7.3)", () => {
   });
 });
 
+describe("checkAccess WebSocket upgrade Origin", () => {
+  const up = (headers = {}) => ({ method: "GET", url: "/", headers, upgrade: true });
+
+  it("allows the public_url origin", () => {
+    expect(checkAccess(tailscale(), up({ ...allowed, origin: PUBLIC })).ok).toBe(true);
+    expect(checkAccess(none(), up({ origin: PUBLIC })).ok).toBe(true);
+  });
+
+  it("rejects other origins with 403 in both modes", () => {
+    for (const origin of ["https://evil.example", "http://127.0.0.1:23625", "null"]) {
+      expect(checkAccess(tailscale(), up({ ...allowed, origin }))).toMatchObject({ ok: false, status: 403 });
+      expect(checkAccess(none(), up({ origin }))).toMatchObject({ ok: false, status: 403 });
+    }
+  });
+
+  it("rejects a missing Origin in tailscale mode, allows it in none mode", () => {
+    expect(checkAccess(tailscale(), up(allowed))).toMatchObject({ ok: false, status: 403 });
+    expect(checkAccess(none(), up()).ok).toBe(true);
+  });
+});
+
 describe("app with auth", () => {
   let app: ReturnType<typeof buildApp>["app"];
   let port: number;
   beforeAll(async () => {
-    app = buildApp(tailscale(), new NoneDriver()).app;
+    app = buildApp(tailscale(), new NoneDriver(path.join(os.tmpdir(), "ts-auth-state"))).app;
     await app.listen({ host: "127.0.0.1", port: 0 });
     port = (app.server.address() as AddressInfo).port;
   });
@@ -109,12 +150,12 @@ describe("app with auth", () => {
     ).toBe(200);
   });
 
-  const upgrade = (headers: Record<string, string>) =>
+  const upgrade = (headers: Record<string, string>, path = "/") =>
     new Promise<number>((resolve, reject) => {
       const req = http.request({
         host: "127.0.0.1",
         port,
-        path: "/",
+        path,
         headers: { connection: "Upgrade", upgrade: "websocket", "sec-websocket-version": "13", "sec-websocket-key": "dGVzdA==", ...headers },
       });
       req.on("response", (res) => resolve(res.statusCode ?? 0));
@@ -123,11 +164,33 @@ describe("app with auth", () => {
       req.end();
     });
 
+  // inject はパスを正規化しうるので、リクエスト行をそのまま送る
+  const rawStatus = (target: string) =>
+    new Promise<string>((resolve, reject) => {
+      const s = net.connect(port, "127.0.0.1", () =>
+        s.write(`GET ${target} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n`),
+      );
+      let buf = "";
+      s.on("data", (d) => (buf += d));
+      s.on("end", () => resolve(buf.split("\r\n")[0]));
+      s.on("error", reject);
+    });
+
+  it("rejects malformed paths with 400 on HTTP and upgrade", async () => {
+    expect(await rawStatus("/healthz")).toMatch(/^HTTP\/1\.1 200/);
+    for (const target of ["/x/../healthz", "/./healthz", "/%2e/healthz", "//x/healthz", "http://x/healthz"]) {
+      expect(await rawStatus(target), target).toMatch(/^HTTP\/1\.1 400/);
+    }
+    expect(await upgrade({ ...allowed, origin: PUBLIC }, "/x/../")).toBe(400);
+  });
+
   it("applies the rules to WebSocket upgrades", async () => {
     expect(await upgrade({})).toBe(401);
     expect(await upgrade({ "tailscale-user-login": "x@example.com" })).toBe(403);
-    // 認証は通り、プレビューが動いていないので 503
-    expect(await upgrade(allowed)).toBe(503);
+    expect(await upgrade(allowed)).toBe(403);
+    expect(await upgrade({ ...allowed, origin: "https://evil.example" })).toBe(403);
+    // 認証と Origin は通り、プレビューが動いていないので 503
+    expect(await upgrade({ ...allowed, origin: PUBLIC })).toBe(503);
   });
 });
 
@@ -135,7 +198,7 @@ describe("relay strips Tailscale identity headers", () => {
   it("does not pass Tailscale-User-* to tinymist", () => {
     const h = rewriteUpgradeHeaders(
       [
-        "Host", "studio.example.ts.net",
+        "Host", "studio.example.test",
         "Tailscale-User-Login", "author-a@example.com",
         "Tailscale-User-Name", "Author A",
         "Tailscale-User-Profile-Pic", "https://example.com/a.png",

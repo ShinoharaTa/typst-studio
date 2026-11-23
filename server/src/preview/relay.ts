@@ -50,7 +50,8 @@ export function relayUpgrade(
   const upReq = http.request({
     host: "127.0.0.1",
     port,
-    path: req.url ?? "/",
+    // 上流へはパスを / に固定し、クエリだけ渡す
+    path: "/" + new URL(req.url ?? "/", "http://localhost").search,
     method: "GET",
     headers: rewriteUpgradeHeaders(req.rawHeaders, port),
   });

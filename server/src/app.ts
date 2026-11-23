@@ -10,6 +10,8 @@ export interface App {
   preview: PreviewManager;
 }
 
+const STATUS_TEXT = { 400: "Bad Request", 401: "Unauthorized", 403: "Forbidden" } as const;
+
 export function buildApp(host: HostConfig, driver: ProcessLimitDriver): App {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
   const preview = new PreviewManager(host, driver, app.log);
@@ -54,8 +56,8 @@ export function buildApp(host: HostConfig, driver: ProcessLimitDriver): App {
 
   // ルート / への WebSocket はデータプレーンへ中継する。studio 自身の WebSocket は /api/ws に置く（未実装）
   app.server.on("upgrade", (req, socket, head) => {
-    const d = checkAccess(host, { method: req.method ?? "GET", url: req.url ?? "/", headers: req.headers });
-    if (!d.ok) return rejectUpgrade(socket, d.status, d.status === 401 ? "Unauthorized" : "Forbidden");
+    const d = checkAccess(host, { method: req.method ?? "GET", url: req.url ?? "/", headers: req.headers, upgrade: true });
+    if (!d.ok) return rejectUpgrade(socket, d.status, STATUS_TEXT[d.status]);
     const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
     if (pathname !== "/") return rejectUpgrade(socket, 404, "Not Found");
     if (!preview.isRunning()) return rejectUpgrade(socket, 503, "Service Unavailable");
