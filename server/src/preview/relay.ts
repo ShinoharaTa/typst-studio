@@ -8,12 +8,13 @@ export function upstreamOrigin(port: number): string {
   return `http://127.0.0.1:${port}`;
 }
 
-// ブラウザから来た upgrade リクエストのヘッダを、データプレーン向けに作り直す（Host と Origin を差し替える）
+// ブラウザから来た upgrade リクエストのヘッダを、データプレーン向けに作り直す
+// （Host と Origin を差し替え、Tailscale-User-* の識別ヘッダは渡さない）
 export function rewriteUpgradeHeaders(rawHeaders: string[], port: number): Record<string, string> {
   const out: Record<string, string> = {};
   for (let i = 0; i < rawHeaders.length; i += 2) {
     const name = rawHeaders[i].toLowerCase();
-    if (name === "origin" || name === "host") continue;
+    if (name === "origin" || name === "host" || name.startsWith("tailscale-user-")) continue;
     out[name] = name in out ? `${out[name]}, ${rawHeaders[i + 1]}` : rawHeaders[i + 1];
   }
   out.host = `127.0.0.1:${port}`;

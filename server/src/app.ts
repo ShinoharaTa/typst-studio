@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance } from "fastify";
+import { checkAccess } from "./auth.js";
 import { ConfigError, type HostConfig } from "./config.js";
 import type { ProcessLimitDriver } from "./limits/driver.js";
 import { PreviewManager } from "./preview/manager.js";
@@ -12,6 +13,11 @@ export interface App {
 export function buildApp(host: HostConfig, driver: ProcessLimitDriver): App {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
   const preview = new PreviewManager(host, driver, app.log);
+
+  app.addHook("onRequest", async (req, reply) => {
+    const d = checkAccess(host, { method: req.method, url: req.url, headers: req.headers });
+    if (!d.ok) return reply.code(d.status).send({ error: d.error });
+  });
 
   app.get("/healthz", async () => ({ ok: true }));
 
@@ -48,6 +54,8 @@ export function buildApp(host: HostConfig, driver: ProcessLimitDriver): App {
 
   // ルート / への WebSocket はデータプレーンへ中継する。studio 自身の WebSocket は /api/ws に置く（未実装）
   app.server.on("upgrade", (req, socket, head) => {
+    const d = checkAccess(host, { method: req.method ?? "GET", url: req.url ?? "/", headers: req.headers });
+    if (!d.ok) return rejectUpgrade(socket, d.status, d.status === 401 ? "Unauthorized" : "Forbidden");
     const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
     if (pathname !== "/") return rejectUpgrade(socket, 404, "Not Found");
     if (!preview.isRunning()) return rejectUpgrade(socket, 503, "Service Unavailable");
