@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { parse as parseToml } from "smol-toml";
-import { assertBindAllowed } from "./bind.js";
+import { assertBindAllowed, isLoopbackHost } from "./bind.js";
 
 // ホスト側設定（spec 10.3）
 export interface HostConfig {
@@ -235,8 +235,16 @@ export function parseHostConfig(
   const mode = str(a, "mode", `${w} [auth]`, "tailscale");
   if (mode !== "none" && mode !== "tailscale") throw new ConfigError(`${w} [auth]: unknown mode "${mode}"`);
   const allowUsers = strList(a, "allow_users", `${w} [auth]`) ?? [];
+  if (allowUsers.some((u) => u.trim() === "" || u.trim() !== u)) {
+    throw new ConfigError(`${w} [auth]: "allow_users" must not contain empty or space-padded names`);
+  }
   if (mode === "tailscale" && allowUsers.length === 0) {
     throw new ConfigError(`${w} [auth]: "allow_users" is required when mode = "tailscale" (use mode = "none" for development)`);
+  }
+
+  // コンテナで外向きに待ち受けるなら認証を外せない（ヘッダ無しの UI 素通りを防ぐ。spec 7.2）
+  if (ctx.container && !isLoopbackHost(bind) && mode === "none") {
+    throw new ConfigError(`${w} [auth]: mode = "none" is not allowed with a non-loopback server.bind`);
   }
 
   const l = table(raw, "limits", w);
@@ -275,7 +283,7 @@ export function parseHostConfig(
     auth: { mode, allowUsers },
     limits: {
       driver: driver as HostConfig["limits"]["driver"],
-      watchdogIntervalMs: num(l, "watchdog_interval_ms", `${w} [limits]`, 250),
+      watchdogIntervalMs: int(l, "watchdog_interval_ms", `${w} [limits]`, 50, 250),
     },
     preview: {
       dataPlanePort: port(p, "data_plane_port", pw, 23625),
@@ -299,6 +307,7 @@ export const PROJECT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 // リポジトリ相対のパスを検証し、絶対パスを返す。外へ出るもの（..・絶対パス・シンボリックリンク越え）は拒否
 export function resolveInside(root: string, rel: string, where: string): string {
+  if (rel === "") throw new ConfigError(`${where}: path must not be empty`);
   if (path.isAbsolute(rel) || rel.split(/[\\/]/).includes("..")) {
     throw new ConfigError(`${where}: "${rel}" must be a relative path inside the repository`);
   }
@@ -313,6 +322,13 @@ export function resolveInside(root: string, rel: string, where: string): string 
   if (real !== realRoot && !real.startsWith(realRoot + path.sep)) {
     throw new ConfigError(`${where}: "${rel}" points outside the repository`);
   }
+  return abs;
+}
+
+// resolveInside に加えて、通常ファイルであること（entry 用）
+function resolveFile(root: string, rel: string, where: string): string {
+  const abs = resolveInside(root, rel, where);
+  if (!fs.statSync(abs).isFile()) throw new ConfigError(`${where}: "${rel}" is not a file`);
   return abs;
 }
 
@@ -376,7 +392,7 @@ export function parseProjectConfig(raw: Table, ctx: { name: string; root: string
   const bkw = `${w} [book]`;
   checkKeys(bk, ["entry", "preview_profile"], bkw);
   const bookEntry = str(bk, "entry", bkw);
-  resolveInside(ctx.root, bookEntry, bkw);
+  resolveFile(ctx.root, bookEntry, bkw);
   const previewProfile = optStr(bk, "preview_profile", bkw);
 
   let preview: ProjectConfig["preview"] = { entry: bookEntry, inputs: {} };
@@ -384,7 +400,7 @@ export function parseProjectConfig(raw: Table, ctx: { name: string; root: string
     const p = table(raw, "preview", w);
     checkKeys(p, ["entry", "inputs"], `${w} [preview]`);
     const entry = str(p, "entry", `${w} [preview]`, bookEntry);
-    resolveInside(ctx.root, entry, `${w} [preview]`);
+    resolveFile(ctx.root, entry, `${w} [preview]`);
     const inputs = strMap(p, "inputs", `${w} [preview]`);
     checkPlaceholders(inputs, `${w} [preview]`);
     preview = { entry, inputs };
@@ -413,7 +429,7 @@ export function parseProjectConfig(raw: Table, ctx: { name: string; root: string
     if (!isTable(v)) throw new ConfigError(`${pfw}: must be a table`);
     checkKeys(v, ["entry", "inputs", "output"], pfw);
     const entry = str(v, "entry", pfw);
-    resolveInside(ctx.root, entry, pfw);
+    resolveFile(ctx.root, entry, pfw);
     const inputs = strMap(v, "inputs", pfw);
     checkPlaceholders(inputs, pfw);
     profiles[pname] = { entry, inputs, output: relPath(str(v, "output", pfw), pfw) };

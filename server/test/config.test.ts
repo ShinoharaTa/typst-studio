@@ -35,7 +35,7 @@ describe("host config", () => {
   it("reads every key of spec 10.3", () => {
     const c = parseHostConfig(
       {
-        server: { bind: "127.0.0.1", port: 9000, public_url: "https://studio.example.ts.net:8445" },
+        server: { bind: "127.0.0.1", port: 9000, public_url: "https://studio.example.test:8445" },
         auth: { mode: "tailscale", allow_users: ["user@example.com"] },
         limits: { driver: "watchdog", watchdog_interval_ms: 100 },
         preview: { data_plane_port: 1, control_plane_port: 2, memory_max: "500M", cpu_quota: "100%", idle_stop_minutes: 3 },
@@ -44,7 +44,7 @@ describe("host config", () => {
       },
       ctx,
     );
-    expect(c.server.allowedOrigins).toEqual(["https://studio.example.ts.net:8445"]);
+    expect(c.server.allowedOrigins).toEqual(["https://studio.example.test:8445"]);
     expect(c.auth).toEqual({ mode: "tailscale", allowUsers: ["user@example.com"] });
     expect(c.limits).toEqual({ driver: "watchdog", watchdogIntervalMs: 100 });
     expect(c.build.memoryMax).toBe("300M");
@@ -54,8 +54,8 @@ describe("host config", () => {
 
   it("derives allowed Origin from public_url", () => {
     const o = (u: string) => parseHostConfig({ ...dev, server: { public_url: u } }, ctx).server.allowedOrigins;
-    expect(o("https://a.example.ts.net:8445/some/path")).toEqual(["https://a.example.ts.net:8445"]);
-    expect(o("https://b.example.ts.net")).toEqual(["https://b.example.ts.net"]);
+    expect(o("https://a.example.test:8445/some/path")).toEqual(["https://a.example.test:8445"]);
+    expect(o("https://b.example.test")).toEqual(["https://b.example.test"]);
     expect(() => o("not a url")).toThrow(/public_url/);
     expect(() => o("ftp://x")).toThrow(/http/);
   });
@@ -82,9 +82,32 @@ describe("host config", () => {
     expect(() => parseHostConfig({ auth: { mode: "open" } }, ctx)).toThrow(/unknown mode/);
   });
 
+  it("rejects empty or space-padded allow_users", () => {
+    for (const u of ["", " ", "  ", " a@example.com", "a@example.com "]) {
+      expect(() => parseHostConfig({ auth: { allow_users: ["ok@example.com", u] } }, ctx), JSON.stringify(u)).toThrow(
+        /allow_users/,
+      );
+    }
+  });
+
+  it("validates watchdog_interval_ms as an integer >= 50", () => {
+    expect(parseHostConfig({ ...dev, limits: { watchdog_interval_ms: 50 } }, ctx).limits.watchdogIntervalMs).toBe(50);
+    for (const v of [49, 0, 100.5, "250"]) {
+      expect(() => parseHostConfig({ ...dev, limits: { watchdog_interval_ms: v } }, ctx)).toThrow(/watchdog_interval_ms/);
+    }
+  });
+
+  it("rejects auth.mode = none on a non-loopback bind in a container", () => {
+    const c = { ...ctx, container: true };
+    expect(() => parseHostConfig({ ...dev, server: { bind: "0.0.0.0" } }, c)).toThrow(/mode = "none"/);
+    expect(parseHostConfig({ ...dev, server: { bind: "127.0.0.1" } }, c).auth.mode).toBe("none");
+    expect(parseHostConfig({ server: { bind: "0.0.0.0" }, auth: { allow_users: ["u"] } }, c).server.bind).toBe("0.0.0.0");
+  });
+
   it("rejects non-loopback bind unless container", () => {
     expect(() => parseHostConfig({ ...dev, server: { bind: "0.0.0.0" } }, ctx)).toThrow(/loopback/);
-    expect(parseHostConfig({ ...dev, server: { bind: "0.0.0.0" } }, { ...ctx, container: true }).server.bind).toBe("0.0.0.0");
+    const c = { ...ctx, container: true };
+    expect(parseHostConfig({ server: { bind: "0.0.0.0" }, auth: { allow_users: ["u"] } }, c).server.bind).toBe("0.0.0.0");
   });
 
   it("parses sizes like systemd", () => {
@@ -234,6 +257,16 @@ describe("project config", () => {
     ).toThrow(/does not exist/);
     const pf = { ...base().profiles, print: { entry: "other.typ", output: "main.pdf" } };
     expect(() => parseProjectConfig({ ...base(), profiles: pf }, pctx())).toThrow(/does not exist/);
+  });
+
+  it("rejects empty, directory and '.' entries", () => {
+    for (const entry of ["", ".", "articles", "fonts/"]) {
+      expect(() => parseProjectConfig({ ...base(), book: { entry } }, pctx()), entry).toThrow(/empty|not a file/);
+      expect(() => parseProjectConfig({ ...base(), preview: { entry } }, pctx()), entry).toThrow(/empty|not a file/);
+      const pf = { ...base().profiles, print: { entry, output: "main.pdf" } };
+      expect(() => parseProjectConfig({ ...base(), profiles: pf }, pctx()), entry).toThrow(/empty|not a file/);
+    }
+    expect(() => parseProjectConfig({ ...base(), fonts: { paths: [""] } }, pctx())).toThrow(/empty/);
   });
 
   it("rejects paths outside the repository (.., absolute, symlink)", () => {
