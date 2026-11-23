@@ -133,7 +133,7 @@ export class PreviewManager {
     for (const port of [pv.dataPlanePort, pv.controlPlanePort]) {
       if (await portInUse(port)) throw new Error(`127.0.0.1:${port} is already in use`);
     }
-    const fontPaths = [...project.fonts.paths.map((p) => path.join(project.root, p)), path.join(this.host.dist, "fonts")];
+    const fontPaths = [...project.fonts.paths.map((p) => path.join(project.root, p)), ...this.host.fonts.extraPaths];
     const args = [
       "preview",
       "--no-open",

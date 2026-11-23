@@ -4,12 +4,13 @@ import path from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { assertBindAllowed } from "./bind.js";
 
-// ホスト側設定（spec 10.3）。今は [server] [auth] [limits] [preview] だけ読む
+// ホスト側設定（spec 10.3）
 export interface HostConfig {
   home: string;
   dist: string;
   container: boolean;
-  server: { bind: string; port: number; publicUrl?: string };
+  // allowedOrigins: 状態を変える API の Origin 検査で許す値。public_url から導出する（spec 7.3）
+  server: { bind: string; port: number; publicUrl?: string; allowedOrigins: string[] };
   auth: { mode: "none" | "tailscale"; allowUsers: string[] };
   limits: { driver: "auto" | "systemd-scope" | "watchdog" | "none"; watchdogIntervalMs: number };
   preview: {
@@ -19,14 +20,32 @@ export interface HostConfig {
     cpuQuota: string;
     idleStopMinutes: number;
   };
+  build: {
+    memoryMax: string;
+    timeoutSeconds: number;
+    autoOnSave: boolean;
+    autoDebounceSeconds: number;
+    keepGenerations: number;
+  };
+  // extraPaths: $TYPST_STUDIO_DIST 相対で書き、絶対パスにして持つ
+  fonts: { extraPaths: string[] };
 }
 
-// リポジトリ側設定（spec 2.3）。今は [fonts] [preview] [articles] だけ解釈する
+export interface ProfileConfig {
+  entry: string;
+  inputs: Record<string, string>;
+  output: string;
+}
+
+// リポジトリ側設定（spec 2.3）
 export interface ProjectConfig {
   name: string;
   root: string;
   source: string;
+  project: { name?: string; typst: string };
   fonts: { paths: string[]; system: boolean };
+  book: { entry: string; previewProfile?: string };
+  // [preview] が無ければ book.entry をそのまま使う（inputs は空）
   preview: { entry: string; inputs: Record<string, string> };
   articles: {
     glob: string;
@@ -34,6 +53,8 @@ export interface ProjectConfig {
     uploadDir?: string;
     override: { match: string; inputs: Record<string, string> }[];
   };
+  profiles: Record<string, ProfileConfig>;
+  imageFn: { name: string; pathArg: number; sizeArgs: Record<string, number> }[];
 }
 
 export class ConfigError extends Error {}
@@ -87,6 +108,18 @@ function num(t: Table, key: string, where: string, def: number): number {
   return v;
 }
 
+function int(t: Table, key: string, where: string, min: number, def?: number): number {
+  const v = t[key];
+  if (v === undefined) {
+    if (def === undefined) throw new ConfigError(`${where}: "${key}" is required`);
+    return def;
+  }
+  if (typeof v !== "number" || !Number.isInteger(v) || v < min) {
+    throw new ConfigError(`${where}: "${key}" must be an integer >= ${min}`);
+  }
+  return v;
+}
+
 function port(t: Table, key: string, where: string, def: number): number {
   const v = num(t, key, where, def);
   if (!Number.isInteger(v) || v > 65535) throw new ConfigError(`${where}: "${key}" must be a port number`);
@@ -119,8 +152,37 @@ function readToml(file: string): Table {
   }
 }
 
+function arrayOfTables(t: Table, key: string, where: string, label: string): Table[] {
+  const v = t[key];
+  if (v === undefined) return [];
+  if (!Array.isArray(v) || !v.every(isTable)) throw new ConfigError(`${where}: "${key}" must be an array of tables (${label})`);
+  return v;
+}
+
 const SIZE_RE = /^\d+[KMGT]?$/;
 const PERCENT_RE = /^\d+%$/;
+
+function size(t: Table, key: string, where: string, def: string): string {
+  const v = str(t, key, where, def);
+  if (!SIZE_RE.test(v)) throw new ConfigError(`${where}: "${key}" must look like "600M"`);
+  return v;
+}
+
+// "600M" → バイト。systemd と同じく K/M/G/T は 1024 倍
+export function parseSize(s: string): number {
+  const m = /^(\d+)([KMGT]?)$/.exec(s);
+  if (!m) throw new Error(`invalid size "${s}"`);
+  const exp = { "": 0, K: 1, M: 2, G: 3, T: 4 }[m[2] as "" | "K" | "M" | "G" | "T"];
+  return Number(m[1]) * 1024 ** exp;
+}
+
+// 相対パスの形だけを検証する（実在は問わない）。絶対パスと .. を拒否
+function relPath(rel: string, where: string): string {
+  if (rel === "" || path.isAbsolute(rel) || rel.split(/[\\/]/).includes("..")) {
+    throw new ConfigError(`${where}: "${rel}" must be a relative path without ".."`);
+  }
+  return rel;
+}
 
 export function defaultHome(env: NodeJS.ProcessEnv = process.env): string {
   const base = env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share");
@@ -142,7 +204,7 @@ export function parseHostConfig(
   ctx: { home: string; dist: string; container: boolean; where: string },
 ): HostConfig {
   const w = ctx.where;
-  checkKeys(raw, ["server", "auth", "limits", "preview"], w);
+  checkKeys(raw, ["server", "auth", "limits", "preview", "build", "fonts"], w);
 
   const s = table(raw, "server", w);
   checkKeys(s, ["bind", "port", "public_url"], `${w} [server]`);
@@ -153,11 +215,29 @@ export function parseHostConfig(
     throw new ConfigError(`${w} [server]: ${(e as Error).message}`);
   }
 
+  const publicUrl = optStr(s, "public_url", `${w} [server]`);
+  const allowedOrigins: string[] = [];
+  if (publicUrl !== undefined) {
+    let u: URL;
+    try {
+      u = new URL(publicUrl);
+    } catch {
+      throw new ConfigError(`${w} [server]: "public_url" must be a URL`);
+    }
+    if (u.protocol !== "https:" && u.protocol !== "http:") {
+      throw new ConfigError(`${w} [server]: "public_url" must be http(s)`);
+    }
+    allowedOrigins.push(u.origin);
+  }
+
   const a = table(raw, "auth", w);
   checkKeys(a, ["mode", "allow_users"], `${w} [auth]`);
-  // 仮: 既定は "none"。"tailscale"（N1）は後の作業で実装する
-  const mode = str(a, "mode", `${w} [auth]`, "none");
+  const mode = str(a, "mode", `${w} [auth]`, "tailscale");
   if (mode !== "none" && mode !== "tailscale") throw new ConfigError(`${w} [auth]: unknown mode "${mode}"`);
+  const allowUsers = strList(a, "allow_users", `${w} [auth]`) ?? [];
+  if (mode === "tailscale" && allowUsers.length === 0) {
+    throw new ConfigError(`${w} [auth]: "allow_users" is required when mode = "tailscale" (use mode = "none" for development)`);
+  }
 
   const l = table(raw, "limits", w);
   checkKeys(l, ["driver", "watchdog_interval_ms"], `${w} [limits]`);
@@ -169,10 +249,18 @@ export function parseHostConfig(
   const p = table(raw, "preview", w);
   const pw = `${w} [preview]`;
   checkKeys(p, ["data_plane_port", "control_plane_port", "memory_max", "cpu_quota", "idle_stop_minutes"], pw);
-  const memoryMax = str(p, "memory_max", pw, "600M");
-  if (!SIZE_RE.test(memoryMax)) throw new ConfigError(`${pw}: "memory_max" must look like "600M"`);
+  const memoryMax = size(p, "memory_max", pw, "600M");
   const cpuQuota = str(p, "cpu_quota", pw, "200%");
   if (!PERCENT_RE.test(cpuQuota)) throw new ConfigError(`${pw}: "cpu_quota" must look like "200%"`);
+
+  const b = table(raw, "build", w);
+  const bw = `${w} [build]`;
+  checkKeys(b, ["memory_max", "timeout_seconds", "auto_on_save", "auto_debounce_seconds", "keep_generations"], bw);
+
+  const f = table(raw, "fonts", w);
+  const fw = `${w} [fonts]`;
+  checkKeys(f, ["extra_paths"], fw);
+  const extraPaths = (strList(f, "extra_paths", fw) ?? ["fonts"]).map((p) => path.join(ctx.dist, relPath(p, fw)));
 
   return {
     home: ctx.home,
@@ -181,9 +269,10 @@ export function parseHostConfig(
     server: {
       bind,
       port: port(s, "port", `${w} [server]`, 8796),
-      publicUrl: optStr(s, "public_url", `${w} [server]`),
+      publicUrl,
+      allowedOrigins,
     },
-    auth: { mode, allowUsers: strList(a, "allow_users", `${w} [auth]`) ?? [] },
+    auth: { mode, allowUsers },
     limits: {
       driver: driver as HostConfig["limits"]["driver"],
       watchdogIntervalMs: num(l, "watchdog_interval_ms", `${w} [limits]`, 250),
@@ -195,6 +284,14 @@ export function parseHostConfig(
       cpuQuota,
       idleStopMinutes: num(p, "idle_stop_minutes", pw, 10),
     },
+    build: {
+      memoryMax: size(b, "memory_max", bw, "1500M"),
+      timeoutSeconds: num(b, "timeout_seconds", bw, 300),
+      autoOnSave: bool(b, "auto_on_save", bw, true),
+      autoDebounceSeconds: num(b, "auto_debounce_seconds", bw, 5),
+      keepGenerations: int(b, "keep_generations", bw, 1, 2),
+    },
+    fonts: { extraPaths },
   };
 }
 
@@ -229,12 +326,12 @@ function checkPlaceholders(inputs: Record<string, string>, where: string): void 
   }
 }
 
-// 仮の置き場: $TYPST_STUDIO_HOME/project-overrides/<name>.toml を優先し、無ければ projects/<name>/typst-studio.toml
+// リポジトリ直下の typst-studio.toml を使い、無ければ $TYPST_STUDIO_HOME/project-overrides/<name>.toml（仮の置き場）
 export function projectConfigPath(host: HostConfig, name: string): string | undefined {
-  const override = path.join(host.home, "project-overrides", `${name}.toml`);
-  if (fs.existsSync(override)) return override;
   const inRepo = path.join(host.home, "projects", name, "typst-studio.toml");
   if (fs.existsSync(inRepo)) return inRepo;
+  const override = path.join(host.home, "project-overrides", `${name}.toml`);
+  if (fs.existsSync(override)) return override;
   return undefined;
 }
 
@@ -250,57 +347,100 @@ export function loadProjectConfig(host: HostConfig, name: string): ProjectConfig
   if (!source) {
     throw new ConfigError(
       `project "${name}" has no typst-studio.toml ` +
-        `(looked for ${path.join(host.home, "project-overrides", `${name}.toml`)} and ${path.join(root, "typst-studio.toml")})`,
+        `(looked for ${path.join(root, "typst-studio.toml")} and ${path.join(host.home, "project-overrides", `${name}.toml`)})`,
     );
   }
   return parseProjectConfig(readToml(source), { name, root, source });
 }
 
+const VERSION_RE = /^\d+\.\d+\.\d+$/;
+
 export function parseProjectConfig(raw: Table, ctx: { name: string; root: string; source: string }): ProjectConfig {
   const w = ctx.source;
-  checkKeys(raw, ["fonts", "preview", "articles"], w);
+  checkKeys(raw, ["project", "fonts", "book", "preview", "articles", "profiles", "image_fn"], w);
+
+  if (raw.project === undefined) throw new ConfigError(`${w}: [project] is required`);
+  const pj = table(raw, "project", w);
+  const pjw = `${w} [project]`;
+  checkKeys(pj, ["name", "typst"], pjw);
+  const typst = str(pj, "typst", pjw);
+  if (!VERSION_RE.test(typst)) throw new ConfigError(`${pjw}: "typst" must look like "0.14.2"`);
 
   const f = table(raw, "fonts", w);
   checkKeys(f, ["paths", "system"], `${w} [fonts]`);
   const fontPaths = strList(f, "paths", `${w} [fonts]`) ?? [];
   for (const p of fontPaths) resolveInside(ctx.root, p, `${w} [fonts]`);
 
-  if (raw.preview === undefined) throw new ConfigError(`${w}: [preview] is required`);
-  const p = table(raw, "preview", w);
-  checkKeys(p, ["entry", "inputs"], `${w} [preview]`);
-  const entry = str(p, "entry", `${w} [preview]`);
-  resolveInside(ctx.root, entry, `${w} [preview]`);
-  const inputs = strMap(p, "inputs", `${w} [preview]`);
-  checkPlaceholders(inputs, `${w} [preview]`);
+  if (raw.book === undefined) throw new ConfigError(`${w}: [book] is required`);
+  const bk = table(raw, "book", w);
+  const bkw = `${w} [book]`;
+  checkKeys(bk, ["entry", "preview_profile"], bkw);
+  const bookEntry = str(bk, "entry", bkw);
+  resolveInside(ctx.root, bookEntry, bkw);
+  const previewProfile = optStr(bk, "preview_profile", bkw);
+
+  let preview: ProjectConfig["preview"] = { entry: bookEntry, inputs: {} };
+  if (raw.preview !== undefined) {
+    const p = table(raw, "preview", w);
+    checkKeys(p, ["entry", "inputs"], `${w} [preview]`);
+    const entry = str(p, "entry", `${w} [preview]`, bookEntry);
+    resolveInside(ctx.root, entry, `${w} [preview]`);
+    const inputs = strMap(p, "inputs", `${w} [preview]`);
+    checkPlaceholders(inputs, `${w} [preview]`);
+    preview = { entry, inputs };
+  }
 
   if (raw.articles === undefined) throw new ConfigError(`${w}: [articles] is required`);
   const a = table(raw, "articles", w);
   const aw = `${w} [articles]`;
   checkKeys(a, ["glob", "image_dirs", "upload_dir", "override"], aw);
-  const glob = str(a, "glob", aw);
-  const ov = a.override;
-  if (ov !== undefined && (!Array.isArray(ov) || !ov.every(isTable))) {
-    throw new ConfigError(`${aw}: "override" must be an array of tables ([[articles.override]])`);
-  }
-  const override = ((ov as Table[] | undefined) ?? []).map((o, i) => {
+  const glob = relPath(str(a, "glob", aw), aw);
+  const imageDirs = strList(a, "image_dirs", aw)?.map((d) => relPath(d, aw));
+  const uploadDir = optStr(a, "upload_dir", aw);
+  if (uploadDir !== undefined) relPath(uploadDir, aw);
+  const override = arrayOfTables(a, "override", aw, "[[articles.override]]").map((o, i) => {
     const ow = `${w} [[articles.override]] #${i + 1}`;
     checkKeys(o, ["match", "inputs"], ow);
     const oi = strMap(o, "inputs", ow);
     checkPlaceholders(oi, ow);
-    return { match: str(o, "match", ow), inputs: oi };
+    return { match: relPath(str(o, "match", ow), ow), inputs: oi };
+  });
+
+  const pf = table(raw, "profiles", w);
+  const profiles: Record<string, ProfileConfig> = {};
+  for (const [pname, v] of Object.entries(pf)) {
+    const pfw = `${w} [profiles.${pname}]`;
+    if (!isTable(v)) throw new ConfigError(`${pfw}: must be a table`);
+    checkKeys(v, ["entry", "inputs", "output"], pfw);
+    const entry = str(v, "entry", pfw);
+    resolveInside(ctx.root, entry, pfw);
+    const inputs = strMap(v, "inputs", pfw);
+    checkPlaceholders(inputs, pfw);
+    profiles[pname] = { entry, inputs, output: relPath(str(v, "output", pfw), pfw) };
+  }
+  if (previewProfile !== undefined && !Object.hasOwn(profiles, previewProfile)) {
+    throw new ConfigError(`${bkw}: "preview_profile" = "${previewProfile}" is not defined in [profiles.*]`);
+  }
+
+  const imageFn = arrayOfTables(raw, "image_fn", w, "[[image_fn]]").map((o, i) => {
+    const iw = `${w} [[image_fn]] #${i + 1}`;
+    checkKeys(o, ["name", "path_arg", "size_args"], iw);
+    const sa = table(o, "size_args", iw);
+    const sizeArgs: Record<string, number> = {};
+    for (const k of Object.keys(sa)) sizeArgs[k] = int(sa, k, `${iw} size_args`, 0);
+    return { name: str(o, "name", iw), pathArg: int(o, "path_arg", iw, 0), sizeArgs };
   });
 
   return {
     name: ctx.name,
     root: ctx.root,
     source: ctx.source,
+    project: { name: optStr(pj, "name", pjw), typst },
     fonts: { paths: fontPaths, system: bool(f, "system", `${w} [fonts]`, true) },
-    preview: { entry, inputs },
-    articles: {
-      glob,
-      imageDirs: strList(a, "image_dirs", aw),
-      uploadDir: optStr(a, "upload_dir", aw),
-      override,
-    },
+    book: { entry: bookEntry, previewProfile },
+    preview,
+    articles: { glob, imageDirs, uploadDir, override },
+    profiles,
+    imageFn,
   };
 }
