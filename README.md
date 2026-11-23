@@ -49,11 +49,11 @@ mode = "none"               # 開発用。認証しない（curl から API を�
 [server]
 bind = "127.0.0.1"          # ループバック以外は TYPST_STUDIO_CONTAINER=1 のときだけ
 port = 8796
-public_url = "https://<host>.<tailnet>.ts.net:8445"   # 既定なし。状態を変える API の Origin 検査の許可値になる
+public_url = "https://studio.example.test:8445"   # tailscale serve の URL。既定なし。Origin 検査の許可値になる
 
 [auth]
 mode = "tailscale"          # "tailscale" / "none"
-allow_users = ["<Tailscale のログイン名>"]            # mode = "tailscale" では必須
+allow_users = ["<Tailscale のログイン名>"]            # mode = "tailscale" では必須。大文字小文字を区別して完全一致
 
 [limits]
 driver = "auto"             # auto / systemd-scope / watchdog / none
@@ -77,9 +77,10 @@ keep_generations = 2
 extra_paths = ["fonts"]     # $TYPST_STUDIO_DIST 相対
 ```
 
-- 認証（`auth.mode = "tailscale"`）: `Tailscale-User-Login` ヘッダがあれば `allow_users` と照合し、外れたら 403。ヘッダが無いリクエストは `/mcp` と `/healthz` だけ通し、他は 401
-- POST などの状態を変えるリクエストは `Origin` が `public_url` のオリジンと一致しなければ 403。`Origin` 無しは `auth.mode = "none"` のとき（curl）と `/mcp` `/healthz` だけ通す
-- プロセス制限ドライバ: `auto` は `systemd-run --user --scope` が使えれば `systemd-scope`（厳密）、使えなければ `watchdog`（RSS の見張り + typst には `prlimit --as`）。`none` は上限なし。選ばれたドライバは起動ログに 1 行出る
+- 認証（`auth.mode = "tailscale"`）: `Tailscale-User-Login` ヘッダがあれば `allow_users` と照合し（大文字小文字を区別した完全一致）、外れたら 403。ヘッダが無いリクエストは `/mcp` と `/healthz` だけ通し、他は 401。パスに `..` `%2e` `//` などを含み、正規化すると形が変わるリクエストは 400
+- POST などの状態を変えるリクエストと WebSocket の接続は、`Origin` が `public_url` のオリジンと一致しなければ 403。`Origin` 無しは `auth.mode = "none"` のとき（curl）と、HTTP の `/mcp` `/healthz` だけ通す
+- コンテナ（`TYPST_STUDIO_CONTAINER=1`）でループバック以外に bind するときは `auth.mode = "none"` にできない
+- プロセス制限ドライバ: `auto` は `systemd-run --user --scope` が使えれば `systemd-scope`（厳密）、使えなければ `watchdog`（RSS の見張り + typst には `prlimit --as`）。`none` は上限なし。選ばれたドライバは起動ログに 1 行出る。起動時に、前回の studio が異常終了して残した子（`typst-studio-*.scope`、または `$TYPST_STUDIO_HOME/state/children/` に記録した子）を止める
 
 ### プロジェクト側の設定 `typst-studio.toml`
 
