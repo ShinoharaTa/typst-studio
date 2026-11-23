@@ -28,6 +28,8 @@ interface Running {
   controlConnected: boolean;
   controlCounts: Record<string, number>;
   controlLast?: ControlLast;
+  // 起動が完了した（running に達した）か。自動再起動はこれが true の run だけ
+  reachedRunning: boolean;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -176,6 +178,7 @@ export class PreviewManager {
       startedAt: new Date().toISOString(),
       controlConnected: false,
       controlCounts: {},
+      reachedRunning: false,
     };
     this.cur = run;
     let exited = false;
@@ -194,6 +197,7 @@ export class PreviewManager {
       throw e;
     }
     this.state = "running";
+    run.reachedRunning = true;
     this.scheduleIdleStop();
   }
 
@@ -246,7 +250,8 @@ export class PreviewManager {
       this.clearIdleTimer();
       for (const v of this.viewers) v.destroy();
       this.viewers.clear();
-      if (info.reason === "limit" && this.autoRestartsLeft > 0) {
+      // 起動途中に止まったときは start が失敗を返すので、再起動しない
+      if (info.reason === "limit" && run.reachedRunning && this.autoRestartsLeft > 0) {
         this.autoRestartsLeft--;
         this.log.warn({ project: run.project, article: run.article }, "tinymist hit the memory limit; restarting once");
         void this.serial(async () => {
