@@ -25,7 +25,7 @@ scripts/add-project.sh <name> <git-url>
 
 ## studio サーバーを起動する（開発中）
 
-Node 24 が要る（`source ~/.nvm/nvm.sh`）。`127.0.0.1:8796` で待ち受ける。設定は `$TYPST_STUDIO_HOME/config.toml`（無ければ既定値）。
+Node 24 が要る（`source ~/.nvm/nvm.sh`）。既定で `127.0.0.1:8796` で待ち受ける。
 
 ```sh
 npm install
@@ -34,7 +34,80 @@ npm start            # Ctrl-C で止める（動いている tinymist も止ま�
 npm test
 ```
 
-記事プレビュー（tinymist）は API で起動・停止する。プロジェクト設定は仮に `$TYPST_STUDIO_HOME/project-overrides/<name>.toml` から読む（無ければ `projects/<name>/typst-studio.toml`）。
+### ホスト側の設定 `$TYPST_STUDIO_HOME/config.toml`
+
+無ければ既定値で動くが、既定の `auth.mode = "tailscale"` は `allow_users` が必須なので、開発時は少なくとも次を書く。未知のキーは起動時エラー。
+
+```toml
+[auth]
+mode = "none"               # 開発用。認証しない（curl から API を叩ける）
+```
+
+全キー（値は既定。詳細は spec 10.3）:
+
+```toml
+[server]
+bind = "127.0.0.1"          # ループバック以外は TYPST_STUDIO_CONTAINER=1 のときだけ
+port = 8796
+public_url = "https://<host>.<tailnet>.ts.net:8445"   # 既定なし。状態を変える API の Origin 検査の許可値になる
+
+[auth]
+mode = "tailscale"          # "tailscale" / "none"
+allow_users = ["<Tailscale のログイン名>"]            # mode = "tailscale" では必須
+
+[limits]
+driver = "auto"             # auto / systemd-scope / watchdog / none
+watchdog_interval_ms = 250
+
+[preview]                   # tinymist（記事）
+data_plane_port = 23625
+control_plane_port = 23626
+memory_max = "600M"
+cpu_quota = "200%"          # systemd-scope のみ有効
+idle_stop_minutes = 10
+
+[build]                     # typst compile（本全体）
+memory_max = "1500M"
+timeout_seconds = 300
+auto_on_save = true
+auto_debounce_seconds = 5
+keep_generations = 2
+
+[fonts]
+extra_paths = ["fonts"]     # $TYPST_STUDIO_DIST 相対
+```
+
+- 認証（`auth.mode = "tailscale"`）: `Tailscale-User-Login` ヘッダがあれば `allow_users` と照合し、外れたら 403。ヘッダが無いリクエストは `/mcp` と `/healthz` だけ通し、他は 401
+- POST などの状態を変えるリクエストは `Origin` が `public_url` のオリジンと一致しなければ 403。`Origin` 無しは `auth.mode = "none"` のとき（curl）と `/mcp` `/healthz` だけ通す
+- プロセス制限ドライバ: `auto` は `systemd-run --user --scope` が使えれば `systemd-scope`（厳密）、使えなければ `watchdog`（RSS の見張り + typst には `prlimit --as`）。`none` は上限なし。選ばれたドライバは起動ログに 1 行出る
+
+### プロジェクト側の設定 `typst-studio.toml`
+
+リポジトリ直下の `typst-studio.toml` を読む。無ければ仮の置き場 `$TYPST_STUDIO_HOME/project-overrides/<name>.toml` を読む。キーは spec 2.3。`[project]`（`typst` 必須）・`[book]`（`entry` 必須）・`[articles]`（`glob` 必須）が要る。未知のキー（`[git]` やホスト側のキーを含む）、存在しないパス、リポジトリ外を指すパス、`{article_entry}` 以外のプレースホルダ、`[profiles.*]` に無い `book.preview_profile` は検証エラー。
+
+```toml
+[project]
+typst = "0.14.2"
+
+[book]
+entry = "main.typ"
+preview_profile = "print"
+
+[preview]
+entry = "preview.typ"
+inputs = { ARTICLE = "{article_entry}" }
+
+[articles]
+glob = "articles/**/article.typ"
+
+[profiles.print]
+entry = "main.typ"
+output = "main.pdf"
+```
+
+### 記事プレビュー
+
+記事プレビュー（tinymist）は API で起動・停止する（`auth.mode = "none"` の例）。上限で止まったときは 1 回だけ自動で起動し直す。
 
 ```sh
 curl -X POST -H 'content-type: application/json' \
@@ -43,6 +116,23 @@ curl -X POST -H 'content-type: application/json' \
 curl http://127.0.0.1:8796/api/preview/status
 curl -X POST http://127.0.0.1:8796/api/preview/stop
 ```
+
+## user unit で常駐させる
+
+`systemctl --user` の unit として動かす（linger 有効が前提）。テンプレートは `deploy/systemd/typst-studio.service.in`。
+
+```sh
+source ~/.nvm/nvm.sh        # unit の ExecStart に今の node の絶対パスを書く（NODE=/path/to/node でも可）
+npm run build
+scripts/install-unit.sh                     # ~/.config/systemd/user/typst-studio.service を作るだけ
+scripts/install-unit.sh --enable            # 作って daemon-reload・enable --now まで行う
+scripts/install-unit.sh --dest /tmp/unit    # 別の場所に作って中身を確かめる（--enable とは併用不可）
+
+systemctl --user status typst-studio
+journalctl --user -u typst-studio -f
+```
+
+node の版を上げたら作り直す（`ExecStart` が node の絶対パスを持つため）。
 
 ## git の操作
 
@@ -62,6 +152,8 @@ gh pr create
 | 変数 | 既定 | 用途 |
 |---|---|---|
 | `TYPST_STUDIO_HOME` | `${XDG_DATA_HOME:-$HOME/.local/share}/typst-studio` | 置き場所 |
+| `TYPST_STUDIO_DIST` | `$TYPST_STUDIO_HOME` | studio が `bin/` と `fonts/` を読む場所（書き込まない） |
+| `TYPST_STUDIO_CONTAINER` | 未設定 | `1` のときだけ `server.bind` にループバック以外を許す（コンテナ用） |
 | `TYPST_VERSION` | `0.14.2` | typst CLI の版 |
 | `TINYMIST_VERSION` | `0.14.18` | tinymist の版 |
 | `NOTO_CJK_REF` | `Sans2.004` | notofonts/noto-cjk のタグ |
