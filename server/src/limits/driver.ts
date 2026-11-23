@@ -12,6 +12,8 @@ export interface ResourceLimits {
   cpuQuota?: string; // "200%"
   nice?: number;
   timeoutSeconds?: number;
+  // memoryMax をアドレス空間の上限（prlimit --as）にも使う。watchdog のみ有効。typst 向け（spec 3.8.2）
+  addressSpace?: boolean;
 }
 
 export interface LaunchSpec {

@@ -93,6 +93,8 @@ export class PreviewManager {
   private lastExit?: ExitInfo & { at: string; project: string; article: string };
   private lastError?: string;
   private queue: Promise<unknown> = Promise.resolve();
+  // 上限で止まったときの自動再起動は 1 回まで（spec 3.8.1）。start のたびに戻す
+  private autoRestartsLeft = 0;
 
   constructor(
     private host: HostConfig,
@@ -120,6 +122,7 @@ export class PreviewManager {
       if (this.cur) await this.stopInner("restart");
       const project = loadProjectConfig(this.host, projectName);
       checkArticle(project, article);
+      this.autoRestartsLeft = 1;
       await this.launch(project, article);
     });
   }
@@ -243,6 +246,14 @@ export class PreviewManager {
       this.clearIdleTimer();
       for (const v of this.viewers) v.destroy();
       this.viewers.clear();
+      if (info.reason === "limit" && this.autoRestartsLeft > 0) {
+        this.autoRestartsLeft--;
+        this.log.warn({ project: run.project, article: run.article }, "tinymist hit the memory limit; restarting once");
+        void this.serial(async () => {
+          if (this.cur) return;
+          await this.launch(loadProjectConfig(this.host, run.project), run.article);
+        }).catch((e: Error) => this.log.error({ err: e.message }, "auto restart failed"));
+      }
     }
   }
 
@@ -298,6 +309,7 @@ export class PreviewManager {
         ? { connected: r.controlConnected, counts: r.controlCounts, last: r.controlLast ?? null }
         : null,
       lastExit: this.lastExit ?? null,
+      autoRestartsLeft: this.autoRestartsLeft,
       lastError: this.lastError ?? null,
     };
   }
