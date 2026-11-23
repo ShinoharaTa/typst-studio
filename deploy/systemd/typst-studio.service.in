@@ -1,0 +1,18 @@
+# typst-studio の user unit テンプレート（spec 7.1）。
+# scripts/install-unit.sh が @APP_DIR@ / @NODE@ を置き換えて typst-studio.service を作る。
+# このファイルには絶対パス・ホスト名を書かない。
+[Unit]
+Description=typst-studio
+
+[Service]
+Type=simple
+WorkingDirectory=@APP_DIR@
+ExecStart=@NODE@ @APP_DIR@/server/dist/main.js
+Restart=on-failure
+RestartSec=5
+# 停止時は watchdog / none ドライバで起動した子（tinymist / typst）も止める。
+# systemd-scope ドライバの子は別の scope で動き、studio の停止処理で止める
+KillMode=control-group
+
+[Install]
+WantedBy=default.target
