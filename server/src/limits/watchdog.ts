@@ -1,6 +1,6 @@
 import { cgroupAvailableBytes } from "./cgroup.js";
 import type { LaunchSpec, LimitedProcess, ProcessLimitDriver } from "./driver.js";
-import { startLocal } from "./local.js";
+import { cleanupLocalChildren, startLocal } from "./local.js";
 import { memAvailableBytes } from "./meminfo.js";
 
 // watchdog ドライバ（spec 3.8.2 の P2）。RSS の見張り + typst のみ prlimit --as。
@@ -9,7 +9,14 @@ export class WatchdogDriver implements ProcessLimitDriver {
   readonly name = "watchdog";
   readonly capability = "watchdog" as const;
 
-  constructor(private intervalMs: number) {}
+  constructor(
+    private intervalMs: number,
+    private stateDir: string,
+  ) {}
+
+  async cleanupStale(): Promise<string[]> {
+    return cleanupLocalChildren(this.stateDir);
+  }
 
   async availableMemoryBytes(): Promise<number> {
     const mem = await memAvailableBytes();
@@ -18,6 +25,6 @@ export class WatchdogDriver implements ProcessLimitDriver {
   }
 
   start(spec: LaunchSpec): Promise<LimitedProcess> {
-    return startLocal(spec, { mode: { kind: "watchdog", intervalMs: this.intervalMs } });
+    return startLocal(spec, { mode: { kind: "watchdog", intervalMs: this.intervalMs }, stateDir: this.stateDir });
   }
 }

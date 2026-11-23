@@ -34,7 +34,7 @@ NODE_MAJOR="$("$NODE" -p 'process.versions.node.split(".")[0]')"
 [ "$NODE_MAJOR" -ge 24 ] || die "node >= 24 is required ($NODE is v$("$NODE" -p process.versions.node))"
 
 for v in "$APP_DIR" "$NODE"; do
-  case "$v" in *[[:space:]@\|\\]*) die "path contains unsupported characters: $v" ;; esac
+  case "$v" in *[[:space:]@\|\\\&]*) die "path contains unsupported characters: $v" ;; esac
 done
 [ -f "$APP_DIR/server/dist/main.js" ] || log "warning: server/dist/main.js is missing (run npm run build)"
 

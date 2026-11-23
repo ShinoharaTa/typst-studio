@@ -46,4 +46,6 @@ export interface ProcessLimitDriver {
   start(spec: LaunchSpec): Promise<LimitedProcess>;
   // ビルド開始前の判定に使う空きメモリ（バイト）
   availableMemoryBytes(): Promise<number>;
+  // 前回の studio が異常終了して残した子を止める（起動時に 1 回呼ぶ）。止めたものの説明を返す
+  cleanupStale(): Promise<string[]>;
 }

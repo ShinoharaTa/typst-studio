@@ -13,6 +13,8 @@ RestartSec=5
 # 停止時は watchdog / none ドライバで起動した子（tinymist / typst）も止める。
 # systemd-scope ドライバの子は別の scope で動き、studio の停止処理で止める
 KillMode=control-group
+# studio が異常終了しても systemd-scope ドライバの子（typst-studio-*.scope）を残さない
+ExecStopPost=-systemctl --user stop typst-studio-*.scope
 
 [Install]
 WantedBy=default.target

@@ -1,3 +1,4 @@
+import path from "node:path";
 import { buildApp } from "./app.js";
 import { assertBindAllowed } from "./bind.js";
 import { loadHostConfig } from "./config.js";
@@ -5,8 +6,10 @@ import { selectDriver } from "./limits/index.js";
 
 const host = loadHostConfig();
 assertBindAllowed(host.server.bind, host.container);
-const driver = await selectDriver(host.limits);
+const driver = await selectDriver(host.limits, path.join(host.home, "state", "children"));
 const { app, preview } = buildApp(host, driver);
+const stale = await driver.cleanupStale();
+if (stale.length) app.log.warn({ stopped: stale }, "stopped processes left by a previous run");
 
 const CAPABILITY_LABEL = { strict: "厳密", watchdog: "見張り", none: "無し" } as const;
 app.log.info(
