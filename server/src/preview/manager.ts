@@ -28,6 +28,8 @@ interface Running {
   controlConnected: boolean;
   controlCounts: Record<string, number>;
   controlLast?: ControlLast;
+  // 起動が完了した（running に達した）か。自動再起動はこれが true の run だけ
+  reachedRunning: boolean;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -93,6 +95,8 @@ export class PreviewManager {
   private lastExit?: ExitInfo & { at: string; project: string; article: string };
   private lastError?: string;
   private queue: Promise<unknown> = Promise.resolve();
+  // 上限で止まったときの自動再起動は 1 回まで（spec 3.8.1）。start のたびに戻す
+  private autoRestartsLeft = 0;
 
   constructor(
     private host: HostConfig,
@@ -120,6 +124,7 @@ export class PreviewManager {
       if (this.cur) await this.stopInner("restart");
       const project = loadProjectConfig(this.host, projectName);
       checkArticle(project, article);
+      this.autoRestartsLeft = 1;
       await this.launch(project, article);
     });
   }
@@ -133,7 +138,7 @@ export class PreviewManager {
     for (const port of [pv.dataPlanePort, pv.controlPlanePort]) {
       if (await portInUse(port)) throw new Error(`127.0.0.1:${port} is already in use`);
     }
-    const fontPaths = [...project.fonts.paths.map((p) => path.join(project.root, p)), path.join(this.host.dist, "fonts")];
+    const fontPaths = [...project.fonts.paths.map((p) => path.join(project.root, p)), ...this.host.fonts.extraPaths];
     const args = [
       "preview",
       "--no-open",
@@ -173,6 +178,7 @@ export class PreviewManager {
       startedAt: new Date().toISOString(),
       controlConnected: false,
       controlCounts: {},
+      reachedRunning: false,
     };
     this.cur = run;
     let exited = false;
@@ -191,6 +197,7 @@ export class PreviewManager {
       throw e;
     }
     this.state = "running";
+    run.reachedRunning = true;
     this.scheduleIdleStop();
   }
 
@@ -243,6 +250,15 @@ export class PreviewManager {
       this.clearIdleTimer();
       for (const v of this.viewers) v.destroy();
       this.viewers.clear();
+      // 起動途中に止まったときは start が失敗を返すので、再起動しない
+      if (info.reason === "limit" && run.reachedRunning && this.autoRestartsLeft > 0) {
+        this.autoRestartsLeft--;
+        this.log.warn({ project: run.project, article: run.article }, "tinymist hit the memory limit; restarting once");
+        void this.serial(async () => {
+          if (this.cur) return;
+          await this.launch(loadProjectConfig(this.host, run.project), run.article);
+        }).catch((e: Error) => this.log.error({ err: e.message }, "auto restart failed"));
+      }
     }
   }
 
@@ -298,6 +314,7 @@ export class PreviewManager {
         ? { connected: r.controlConnected, counts: r.controlCounts, last: r.controlLast ?? null }
         : null,
       lastExit: this.lastExit ?? null,
+      autoRestartsLeft: this.autoRestartsLeft,
       lastError: this.lastError ?? null,
     };
   }

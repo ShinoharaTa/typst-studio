@@ -40,6 +40,17 @@ export class SystemdScopeDriver implements ProcessLimitDriver {
     return memAvailableBytes();
   }
 
+  // typst-studio-* の scope は studio が作ったものだけなので、残っていれば止める
+  async cleanupStale(): Promise<string[]> {
+    const out = await systemctl(["list-units", "--all", "--plain", "--no-legend", "typst-studio-*.scope"]).catch(() => "");
+    const units = out.split("\n").map((l) => l.trim().split(/\s+/)[0]).filter((u) => u?.endsWith(".scope"));
+    for (const u of units) {
+      await systemctl(["stop", u]).catch(() => undefined);
+      await systemctl(["reset-failed", u]).catch(() => undefined);
+    }
+    return units;
+  }
+
   async start(spec: LaunchSpec): Promise<LimitedProcess> {
     const unit = `typst-studio-${spec.label}-${randomBytes(4).toString("hex")}.scope`;
     const l = spec.limits;

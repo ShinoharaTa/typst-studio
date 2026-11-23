@@ -1,3 +1,4 @@
+import path from "node:path";
 import { buildApp } from "./app.js";
 import { assertBindAllowed } from "./bind.js";
 import { loadHostConfig } from "./config.js";
@@ -5,17 +6,19 @@ import { selectDriver } from "./limits/index.js";
 
 const host = loadHostConfig();
 assertBindAllowed(host.server.bind, host.container);
-if (host.auth.mode !== "none") {
-  throw new Error(`auth.mode = "${host.auth.mode}" is not implemented yet (use "none")`);
-}
-const driver = await selectDriver(host.limits);
+const driver = await selectDriver(host.limits, path.join(host.home, "state", "children"));
 const { app, preview } = buildApp(host, driver);
+const stale = await driver.cleanupStale();
+if (stale.length) app.log.warn({ stopped: stale }, "stopped processes left by a previous run");
 
 const CAPABILITY_LABEL = { strict: "厳密", watchdog: "見張り", none: "無し" } as const;
 app.log.info(
   `process limit driver: ${driver.name} (${CAPABILITY_LABEL[driver.capability]} / ${driver.capability})`,
 );
-app.log.warn('auth.mode = "none": no authentication (development only)');
+if (driver.capability === "none") app.log.warn('limits.driver = "none": no process limits (development only)');
+if (host.auth.mode === "none") app.log.warn('auth.mode = "none": no authentication (development only)');
+else if (host.auth.mode === "external") app.log.info({ allowedOrigins: host.server.allowedOrigins }, "auth: external (delegated to the front proxy, e.g. Cloudflare Access)");
+else app.log.info({ allowUsers: host.auth.allowUsers.length, allowedOrigins: host.server.allowedOrigins }, "auth: tailscale");
 app.log.info({ home: host.home, dist: host.dist, container: host.container }, "paths");
 
 let shuttingDown = false;

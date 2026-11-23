@@ -1,16 +1,21 @@
 import type { HostConfig } from "../config.js";
 import type { ProcessLimitDriver } from "./driver.js";
+import { NoneDriver } from "./none.js";
 import { SystemdScopeDriver, systemdScopeAvailable } from "./systemd-scope.js";
+import { WatchdogDriver } from "./watchdog.js";
 
-// limits.driver から使うドライバを選ぶ。今は systemd-scope だけ実装している（watchdog / none は後の作業）
-export async function selectDriver(limits: HostConfig["limits"]): Promise<ProcessLimitDriver> {
+// limits.driver から使うドライバを選ぶ。auto は systemd の user scope が使えれば systemd-scope、使えなければ watchdog
+// stateDir: watchdog / none が起動中の子を記録する場所
+export async function selectDriver(limits: HostConfig["limits"], stateDir: string): Promise<ProcessLimitDriver> {
   switch (limits.driver) {
     case "systemd-scope":
       return new SystemdScopeDriver();
+    case "watchdog":
+      return new WatchdogDriver(limits.watchdogIntervalMs, stateDir);
+    case "none":
+      return new NoneDriver(stateDir);
     case "auto":
       if (await systemdScopeAvailable()) return new SystemdScopeDriver();
-      throw new Error('limits.driver = "auto": systemd user scope is unavailable and "watchdog" is not implemented yet');
-    default:
-      throw new Error(`limits.driver = "${limits.driver}" is not implemented yet`);
+      return new WatchdogDriver(limits.watchdogIntervalMs, stateDir);
   }
 }

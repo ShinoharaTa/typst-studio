@@ -593,6 +593,8 @@ Claude が自分で書いた結果の**組版を自分で確かめられる**よ
 
 **推奨: N1（現ホスト・移設先とも）。**
 
+> **v0.5 追記（2026-11-23）: 認証は前段の Cloudflare Access に任せる方針（ユーザー決定）。** studio の既定は `auth.mode = "external"`（ユーザーの照合はせず、Origin 検査とパスの検査だけ行う）。許可リスト（N1）は `auth.mode = "tailscale"` として残す。Cloudflare Access の JWT（`Cf-Access-Jwt-Assertion`）の検証と、公開経路（Cloudflare Tunnel 等）の設計は未決（9.2 #24）
+
 [確認済] 識別ヘッダは `tailscale serve` が tailnet からの通信に付ける。Funnel とタグ付き端末からの通信には付かない。クライアントが同名ヘッダを送ってきた場合、serve が取り除く。バックエンドは localhost だけで待ち受けるのが前提。
 
 **判定規則（v0.4 で変更）**
@@ -759,6 +761,7 @@ Git の操作 UI / 共同編集 / LSP 補完 / 画像変換 / 表紙結合 / 複
 | D10 | 移設先 | **自宅サーバー + Coolify**（「Coolfy」を Coolify と解釈） | ユーザー（2026-11-23） |
 | D11 | 配布形態 | N100 は D1（systemd --user）のまま。移設先は D2（コンテナ、Coolify でデプロイ） | D10 の帰結 |
 | D12 | tinymist のバイナリ | イメージは glibc ベースにし、`tinymist-linux-x64` をそのまま使う | spec で固定 |
+| D13 | 認証 | 前段の Cloudflare Access に任せる。studio の既定は `auth.mode = "external"` | ユーザー（2026-11-23） |
 
 ### 9.2 未決事項
 | # | 事項 | 選択肢 | 推奨 | 決める人 |
@@ -786,6 +789,7 @@ Git の操作 UI / 共同編集 / LSP 補完 / 画像変換 / 表紙結合 / 複
 | 21 | studio リポジトリを Coolify がどう取得するか | 公開 / GitHub App / デプロイキー | 非公開ならデプロイキー | ユーザー（質問 7） |
 | 22 | フォント・バイナリの置き場（コンテナ） | イメージに焼く / ボリューム | **イメージに焼く**（10.8） | spec の推奨で進める |
 | 23 | コンテナ内の各種挙動（M-V1〜V9） | — | 移設時検証で判定 | 結果を見て提案 |
+| 24 | Cloudflare Access 前提の公開経路と JWT 検証 | studio で JWT を検証する / 前段に任せる | 後で検討（当面は前段に任せる） | ユーザー |
 
 ---
 
