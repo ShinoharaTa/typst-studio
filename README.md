@@ -36,7 +36,7 @@ npm test
 
 ### ホスト側の設定 `$TYPST_STUDIO_HOME/config.toml`
 
-無ければ既定値で動くが、既定の `auth.mode = "tailscale"` は `allow_users` が必須なので、開発時は少なくとも次を書く。未知のキーは起動時エラー。
+無ければ既定値で動く（既定の `auth.mode = "external"` は認証を前段のプロキシ（Cloudflare Access など）に任せる）。curl から API を叩く開発時は次を書く。未知のキーは起動時エラー。
 
 ```toml
 [auth]
@@ -52,8 +52,8 @@ port = 8796
 public_url = "https://studio.example.test:8445"   # tailscale serve の URL。既定なし。Origin 検査の許可値になる
 
 [auth]
-mode = "tailscale"          # "tailscale" / "none"
-allow_users = ["<Tailscale のログイン名>"]            # mode = "tailscale" では必須。大文字小文字を区別して完全一致
+mode = "external"           # "external"（前段のプロキシで認証）/ "tailscale" / "none"（開発用）
+# allow_users = ["<Tailscale のログイン名>"]          # mode = "tailscale" では必須。大文字小文字を区別して完全一致
 
 [limits]
 driver = "auto"             # auto / systemd-scope / watchdog / none
@@ -77,6 +77,7 @@ keep_generations = 2
 extra_paths = ["fonts"]     # $TYPST_STUDIO_DIST 相対
 ```
 
+- 認証（`auth.mode = "external"`、既定）: ユーザーの照合はしない。前段（Cloudflare Access など）で認証済みの前提。Origin 検査とパスの検査は行う
 - 認証（`auth.mode = "tailscale"`）: `Tailscale-User-Login` ヘッダがあれば `allow_users` と照合し（大文字小文字を区別した完全一致）、外れたら 403。ヘッダが無いリクエストは `/mcp` と `/healthz` だけ通し、他は 401。パスに `..` `%2e` `//` などを含み、正規化すると形が変わるリクエストは 400
 - POST などの状態を変えるリクエストと WebSocket の接続は、`Origin` が `public_url` のオリジンと一致しなければ 403。`Origin` 無しは `auth.mode = "none"` のとき（curl）と、HTTP の `/mcp` `/healthz` だけ通す
 - コンテナ（`TYPST_STUDIO_CONTAINER=1`）でループバック以外に bind するときは `auth.mode = "none"` にできない

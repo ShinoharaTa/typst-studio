@@ -76,9 +76,13 @@ describe("host config", () => {
     expect(() => parseHostConfig({ ...dev, fonts: { extra_paths: ["/opt/fonts"] } }, ctx)).toThrow(/relative/);
   });
 
-  it("defaults to tailscale auth and requires allow_users", () => {
-    expect(() => parseHostConfig({}, ctx)).toThrow(/allow_users/);
-    expect(parseHostConfig({ auth: { allow_users: ["u"] } }, ctx).auth.mode).toBe("tailscale");
+  it("defaults to external auth (delegated to the front proxy) without allow_users", () => {
+    expect(parseHostConfig({}, ctx).auth.mode).toBe("external");
+    expect(() => parseHostConfig({ auth: { mode: "tailscale" } }, ctx)).toThrow(/allow_users/);
+    expect(parseHostConfig({ auth: { mode: "tailscale", allow_users: ["u"] } }, ctx).auth.mode).toBe("tailscale");
+    expect(
+      parseHostConfig({ server: { bind: "0.0.0.0" }, auth: { mode: "external" } }, { ...ctx, container: true }).auth.mode,
+    ).toBe("external");
     expect(() => parseHostConfig({ auth: { mode: "open" } }, ctx)).toThrow(/unknown mode/);
   });
 

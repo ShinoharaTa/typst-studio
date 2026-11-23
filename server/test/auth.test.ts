@@ -21,6 +21,26 @@ const tailscale = (publicUrl = PUBLIC): HostConfig =>
 const none = (): HostConfig => parseHostConfig({ server: { public_url: PUBLIC }, auth: { mode: "none" } }, ctx);
 const allowed = { "tailscale-user-login": "author-a@example.com" };
 
+describe("checkAccess with auth.mode = external", () => {
+  const external = (): HostConfig => parseHostConfig({ server: { public_url: PUBLIC } }, ctx);
+  it("does not require a login header", () => {
+    expect(checkAccess(external(), { method: "GET", url: "/api/preview/status", headers: {} })).toEqual({ ok: true });
+  });
+  it("still checks Origin on state-changing requests and upgrades", () => {
+    const post = (origin?: string) => ({ method: "POST", url: "/api/preview/stop", headers: origin ? { origin } : {} });
+    expect(checkAccess(external(), post(PUBLIC))).toEqual({ ok: true });
+    expect(checkAccess(external(), post("https://evil.example"))).toMatchObject({ ok: false, status: 403 });
+    expect(checkAccess(external(), post())).toMatchObject({ ok: false, status: 403 });
+    const up = (origin?: string) => ({ method: "GET", url: "/", headers: origin ? { origin } : {}, upgrade: true });
+    expect(checkAccess(external(), up(PUBLIC))).toEqual({ ok: true });
+    expect(checkAccess(external(), up("https://evil.example"))).toMatchObject({ ok: false, status: 403 });
+    expect(checkAccess(external(), up())).toMatchObject({ ok: false, status: 403 });
+  });
+  it("still rejects malformed paths", () => {
+    expect(checkAccess(external(), { method: "GET", url: "/x/../healthz", headers: {} })).toMatchObject({ status: 400 });
+  });
+});
+
 describe("checkAccess (spec 7.2)", () => {
   const get = (url: string, headers = {}) => ({ method: "GET", url, headers });
 

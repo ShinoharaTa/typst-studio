@@ -11,7 +11,7 @@ export interface HostConfig {
   container: boolean;
   // allowedOrigins: 状態を変える API の Origin 検査で許す値。public_url から導出する（spec 7.3）
   server: { bind: string; port: number; publicUrl?: string; allowedOrigins: string[] };
-  auth: { mode: "none" | "tailscale"; allowUsers: string[] };
+  auth: { mode: "external" | "none" | "tailscale"; allowUsers: string[] };
   limits: { driver: "auto" | "systemd-scope" | "watchdog" | "none"; watchdogIntervalMs: number };
   preview: {
     dataPlanePort: number;
@@ -232,14 +232,14 @@ export function parseHostConfig(
 
   const a = table(raw, "auth", w);
   checkKeys(a, ["mode", "allow_users"], `${w} [auth]`);
-  const mode = str(a, "mode", `${w} [auth]`, "tailscale");
-  if (mode !== "none" && mode !== "tailscale") throw new ConfigError(`${w} [auth]: unknown mode "${mode}"`);
+  const mode = str(a, "mode", `${w} [auth]`, "external");
+  if (mode !== "external" && mode !== "none" && mode !== "tailscale") throw new ConfigError(`${w} [auth]: unknown mode "${mode}"`);
   const allowUsers = strList(a, "allow_users", `${w} [auth]`) ?? [];
   if (allowUsers.some((u) => u.trim() === "" || u.trim() !== u)) {
     throw new ConfigError(`${w} [auth]: "allow_users" must not contain empty or space-padded names`);
   }
   if (mode === "tailscale" && allowUsers.length === 0) {
-    throw new ConfigError(`${w} [auth]: "allow_users" is required when mode = "tailscale" (use mode = "none" for development)`);
+    throw new ConfigError(`${w} [auth]: "allow_users" is required when mode = "tailscale" (use mode = "external" behind an authenticating proxy, or "none" for development)`);
   }
 
   // コンテナで外向きに待ち受けるなら認証を外せない（ヘッダ無しの UI 素通りを防ぐ。spec 7.2）
@@ -280,7 +280,7 @@ export function parseHostConfig(
       publicUrl,
       allowedOrigins,
     },
-    auth: { mode, allowUsers },
+    auth: { mode: mode as "external" | "none" | "tailscale", allowUsers },
     limits: {
       driver: driver as HostConfig["limits"]["driver"],
       watchdogIntervalMs: int(l, "watchdog_interval_ms", `${w} [limits]`, 50, 250),

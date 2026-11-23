@@ -17,6 +17,7 @@ app.log.info(
 );
 if (driver.capability === "none") app.log.warn('limits.driver = "none": no process limits (development only)');
 if (host.auth.mode === "none") app.log.warn('auth.mode = "none": no authentication (development only)');
+else if (host.auth.mode === "external") app.log.info({ allowedOrigins: host.server.allowedOrigins }, "auth: external (delegated to the front proxy, e.g. Cloudflare Access)");
 else app.log.info({ allowUsers: host.auth.allowUsers.length, allowedOrigins: host.server.allowedOrigins }, "auth: tailscale");
 app.log.info({ home: host.home, dist: host.dist, container: host.container }, "paths");
 
