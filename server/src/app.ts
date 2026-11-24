@@ -1,20 +1,35 @@
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
+import { WebSocketServer } from "ws";
 import { checkAccess } from "./auth.js";
-import { ConfigError, type HostConfig } from "./config.js";
+import { ConfigError, loadProjectConfig, type HostConfig } from "./config.js";
+import { FileError, listArticles, MAX_FILE_BYTES, projectRoot, readProjectFile, writeProjectFile } from "./files.js";
 import type { ProcessLimitDriver } from "./limits/driver.js";
 import { PreviewManager } from "./preview/manager.js";
 import { fetchPreviewPage, rejectUpgrade, relayUpgrade } from "./preview/relay.js";
+import { EMPTY_GIT, gitState, Watchers, type WatchersOptions } from "./watch.js";
 
 export interface App {
   app: FastifyInstance;
   preview: PreviewManager;
+  watchers: Watchers;
 }
 
 const STATUS_TEXT = { 400: "Bad Request", 401: "Unauthorized", 403: "Forbidden" } as const;
 
-export function buildApp(host: HostConfig, driver: ProcessLimitDriver): App {
+export function buildApp(host: HostConfig, driver: ProcessLimitDriver, opts: { ws?: WatchersOptions } = {}): App {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
   const preview = new PreviewManager(host, driver, app.log);
+  const watchers = new Watchers(host, app.log, opts.ws);
+  // /api/ws（studio 自身の通知）。upgrade は下の app.server.on("upgrade") で振り分ける
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
+  // onClose は server.close() の完了後に走るので、upgrade 済みの /api/ws はその前（preClose）に切る
+  app.addHook("preClose", async () => {
+    watchers.closeClients();
+  });
+  app.addHook("onClose", async () => {
+    await watchers.close();
+    wss.close();
+  });
 
   app.addHook("onRequest", async (req, reply) => {
     const d = checkAccess(host, { method: req.method, url: req.url, headers: req.headers });
@@ -44,6 +59,70 @@ export function buildApp(host: HostConfig, driver: ProcessLimitDriver): App {
     return preview.status();
   });
 
+  // FileError / ConfigError を HTTP のエラーにする。それ以外は投げ直す
+  const sendError = (reply: FastifyReply, e: unknown) => {
+    if (e instanceof FileError) return reply.code(e.status).send({ error: e.message, ...e.extra });
+    if (e instanceof ConfigError) return reply.code(400).send({ error: e.message });
+    throw e;
+  };
+
+  app.get("/api/projects", async () => {
+    const names = watchers.listProjectNames();
+    return Promise.all(
+      names.map(async (name) => {
+        let root: string;
+        try {
+          root = projectRoot(host, name);
+        } catch (e) {
+          // 一覧を取ってから消えた・読めないプロジェクト
+          return { name, ...EMPTY_GIT, error: (e as Error).message };
+        }
+        let error: string | undefined;
+        try {
+          loadProjectConfig(host, name);
+        } catch (e) {
+          error = (e as Error).message;
+        }
+        // 監視が持つ最新の Git 状態を使う。監視を始められなければその場で読む
+        const git = await watchers.ensure(name, root).then(
+          (pw) => pw.currentGit(),
+          () => gitState(root),
+        );
+        return { name, ...git, ...(error === undefined ? {} : { error }) };
+      }),
+    );
+  });
+
+  app.get<{ Params: { name: string } }>("/api/projects/:name/articles", async (req, reply) => {
+    try {
+      projectRoot(host, req.params.name);
+      return await listArticles(loadProjectConfig(host, req.params.name));
+    } catch (e) {
+      return sendError(reply, e);
+    }
+  });
+
+  app.get<{ Params: { name: string }; Querystring: { path?: unknown } }>("/api/projects/:name/file", async (req, reply) => {
+    try {
+      return readProjectFile(projectRoot(host, req.params.name), req.query.path);
+    } catch (e) {
+      return sendError(reply, e);
+    }
+  });
+
+  app.put<{ Params: { name: string }; Body: { path?: unknown; content?: unknown; baseRev?: unknown } }>(
+    "/api/projects/:name/file",
+    // JSON のエスケープで膨らむ分を見込む（内容そのものの上限は MAX_FILE_BYTES で別に検査する）
+    { bodyLimit: MAX_FILE_BYTES * 6 + 64 * 1024 },
+    async (req, reply) => {
+      try {
+        return await writeProjectFile(projectRoot(host, req.params.name), req.body ?? {});
+      } catch (e) {
+        return sendError(reply, e);
+      }
+    },
+  );
+
   // tinymist の HTML（データプレーンの /）を中継する
   app.get("/preview/", async (_req, reply) => {
     if (!preview.isRunning()) return reply.code(503).send({ error: "preview is not running" });
@@ -54,11 +133,15 @@ export function buildApp(host: HostConfig, driver: ProcessLimitDriver): App {
     return reply.send(res);
   });
 
-  // ルート / への WebSocket はデータプレーンへ中継する。studio 自身の WebSocket は /api/ws に置く（未実装）
+  // ルート / への WebSocket はデータプレーンへ中継する。studio 自身の WebSocket は /api/ws
   app.server.on("upgrade", (req, socket, head) => {
     const d = checkAccess(host, { method: req.method ?? "GET", url: req.url ?? "/", headers: req.headers, upgrade: true });
     if (!d.ok) return rejectUpgrade(socket, d.status, STATUS_TEXT[d.status]);
     const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
+    if (pathname === "/api/ws") {
+      if (!watchers.canAccept()) return rejectUpgrade(socket, 503, "Service Unavailable");
+      return wss.handleUpgrade(req, socket, head, (ws) => watchers.addClient(ws));
+    }
     if (pathname !== "/") return rejectUpgrade(socket, 404, "Not Found");
     if (!preview.isRunning()) return rejectUpgrade(socket, 503, "Service Unavailable");
     relayUpgrade(req, socket, head, preview.dataPlanePort, {
@@ -67,5 +150,5 @@ export function buildApp(host: HostConfig, driver: ProcessLimitDriver): App {
     });
   });
 
-  return { app, preview };
+  return { app, preview, watchers };
 }

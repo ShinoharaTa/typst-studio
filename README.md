@@ -119,6 +119,28 @@ curl http://127.0.0.1:8796/api/preview/status
 curl -X POST http://127.0.0.1:8796/api/preview/stop
 ```
 
+### ファイル API と通知
+
+`auth.mode = "none"` の例。`PUT` は状態を変えるので、`none` 以外では `Origin` が `public_url` と一致しないと 403。
+
+```sh
+curl http://127.0.0.1:8796/api/projects                       # [{ name, branch, detached, head, uncommitted, unpushed, upstream }]（設定が読めなければ error、git が読めなければ gitError）
+curl http://127.0.0.1:8796/api/projects/sample-book/articles  # [{ path }]（articles.glob に一致するもの）
+curl 'http://127.0.0.1:8796/api/projects/sample-book/file?path=main.typ'   # { path, content, rev }。rev = 内容の sha256
+curl -X PUT -H 'content-type: application/json' \
+  -d '{"path":"main.typ","content":"...","baseRev":"<読んだときの rev>"}' \
+  http://127.0.0.1:8796/api/projects/sample-book/file           # { rev }。ディスクが変わっていたら 409 { error, rev, content }
+```
+
+- 新規作成は `baseRev: null`（既にあれば 409）。親ディレクトリは作らない
+- 読み書きできるのはプロジェクトのルート配下の UTF-8 テキスト（2MB まで）。`..`・絶対パス・外を指すシンボリックリンク・`.git/` は拒否
+- 書き込みは同じディレクトリの一時ファイルに書いてから rename する（元のパーミッションを保つ）。書き込み権の無いファイル（0444 など）は 403。所有者・グループが studio と違うファイルは、同じ所有者に戻せる（fchown できる）ときだけ書き、できなければ 403
+- 先頭の BOM は内容として残す（読んで保存してもバイト列は変わらない）
+- プロジェクト内を指すシンボリックリンクは、読み書きとも指す先のファイルを扱う。変更通知は指す先のパスで届き、リンクのパスでは届かない
+- `/api/ws` は 30 秒ごとに ping し、応答の無い接続と、送りきれないメッセージが溜まった接続を切る。同時接続は 16 まで（超えると 503）
+- `GET /api/ws`（WebSocket）に、外部の変更を `file-changed` / `file-removed` / `git-changed` / `articles-changed` / `config-changed` で送る。studio 自身の保存も届く（返った `rev` で見分ける）
+- git は `git --no-optional-locks status --porcelain=v2 --branch` と `git rev-parse` だけを実行する（`server/src/git.ts`）。所有者不一致（`dubious ownership`）は説明付きの `gitError` になり、`safe.directory` は足さない
+
 ## user unit で常駐させる
 
 `systemctl --user` の unit として動かす（linger 有効が前提）。テンプレートは `deploy/systemd/typst-studio.service.in`。

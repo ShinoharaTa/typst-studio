@@ -7,7 +7,7 @@ import { selectDriver } from "./limits/index.js";
 const host = loadHostConfig();
 assertBindAllowed(host.server.bind, host.container);
 const driver = await selectDriver(host.limits, path.join(host.home, "state", "children"));
-const { app, preview } = buildApp(host, driver);
+const { app, preview, watchers } = buildApp(host, driver);
 const stale = await driver.cleanupStale();
 if (stale.length) app.log.warn({ stopped: stale }, "stopped processes left by a previous run");
 
@@ -34,3 +34,5 @@ process.on("SIGINT", () => void shutdown("SIGINT"));
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
 await app.listen({ host: host.server.bind, port: host.server.port });
+// プロジェクトのファイル監視（/api/ws への通知）
+await watchers.startAll();
