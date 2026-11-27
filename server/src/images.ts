@@ -1,7 +1,7 @@
 import path from "node:path";
 import type { ProjectConfig } from "./config.js";
 import { checkRelPath, createProjectFile, FileError, readProjectFile, writeProjectFile } from "./files.js";
-import { scanImageCalls, stringEnd, typstString, unescapeString, type ScannedCall } from "./scan.js";
+import { NEWLINE_RE, ScanDepthError, scanImageCalls, stringEnd, typstString, unescapeString, type ScannedCall } from "./scan.js";
 
 // 画像 API（spec 4.4 / 4.5 / 4.7 段階 2）。オフセット・列は JavaScript の文字列の位置（UTF-16）
 
@@ -27,10 +27,10 @@ const SIZE_VALUE_RE = /^\d+(\.\d+)?(%|mm|cm|pt|em|in)$/;
 
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
-// 各行の先頭の位置
+// 各行の先頭の位置（改行は typst と同じく \r\n・\r・\n・U+0085・U+2028・U+2029 など）
 export function lineStarts(text: string): number[] {
   const out = [0];
-  for (let i = text.indexOf("\n"); i >= 0; i = text.indexOf("\n", i + 1)) out.push(i + 1);
+  for (const m of text.matchAll(NEWLINE_RE)) out.push(m.index + m[0].length);
   return out;
 }
 
@@ -113,7 +113,12 @@ function checkTypPath(rel: unknown): string {
 export function listImages(root: string, relIn: unknown): { rev: string; calls: ImageCall[] } {
   const rel = checkTypPath(relIn);
   const f = readProjectFile(root, rel);
-  return { rev: f.rev, calls: imageCalls(f.content, rel) };
+  try {
+    return { rev: f.rev, calls: imageCalls(f.content, rel) };
+  } catch (e) {
+    if (e instanceof ScanDepthError) throw new FileError(422, `"${rel}" cannot be scanned: ${e.message}`, { rev: f.rev, calls: [] });
+    throw e;
+  }
 }
 
 export type ImageSet = Partial<Record<SetKey, string | null>>;
@@ -132,8 +137,16 @@ function checkSet(v: unknown): ImageSet {
 
 // start の呼び出しの引数だけを書き換えた内容
 export function editImageCall(text: string, typPath: string, start: number, set: ImageSet): { content: string; call: ImageCall } {
+  const scan = (t: string) => {
+    try {
+      return scanImageCalls(t);
+    } catch (e) {
+      if (e instanceof ScanDepthError) throw new FileError(422, `"${typPath}" cannot be scanned: ${e.message}`);
+      throw e;
+    }
+  };
   const find = (t: string) => {
-    const c = scanImageCalls(t).find((x) => x.start === start);
+    const c = scan(t).find((x) => x.start === start);
     if (!c || !toImageCall(t, typPath, lineStarts(t), c).editable) {
       throw new FileError(422, `no editable image() call starts at offset ${start}`);
     }

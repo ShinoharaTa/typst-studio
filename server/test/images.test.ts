@@ -66,6 +66,13 @@ describe("GET /api/projects/:name/images", () => {
     ]);
   });
 
+  it("422s with an empty list when nesting is too deep", async () => {
+    fs.writeFileSync(path.join(root, "deep.typ"), "#" + "(".repeat(100000));
+    const res = await list("deep.typ");
+    expect(res.statusCode).toBe(422);
+    expect(res.json()).toMatchObject({ calls: [], rev: expect.any(String) });
+  });
+
   it("rejects non-.typ and bad paths", async () => {
     expect((await list("notes.txt")).statusCode).toBe(400);
     expect((await list("../x.typ")).statusCode).toBe(400);

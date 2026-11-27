@@ -1,9 +1,10 @@
 import fs from "node:fs";
+import net, { type AddressInfo } from "node:net";
 import path from "node:path";
 import Fastify from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { buildApp, type App } from "../src/app.js";
-import { BuildManager, hasNewerSources, MEMORY_MARGIN_BYTES, parseDiagnostics, parseRange, type BuildStatus } from "../src/build.js";
+import { BuildManager, latestSourceMtime, MEMORY_MARGIN_BYTES, parseDiagnostics, parseRange, type BuildStatus } from "../src/build.js";
 import { parseHostConfig, parseSize, type HostConfig } from "../src/config.js";
 import type { ExitInfo, LaunchSpec, LimitedProcess, ProcessLimitDriver } from "../src/limits/driver.js";
 import { NoneDriver } from "../src/limits/none.js";
@@ -77,6 +78,8 @@ class FakeDriver implements ProcessLimitDriver {
   readonly capability = "none" as const;
   procs: FakeProc[] = [];
   available = 8 * 1024 ** 3;
+  // availableMemoryBytes の応答を遅らせる（判定中に別の依頼を積むため）
+  delay = 0;
 
   async start(spec: LaunchSpec): Promise<LimitedProcess> {
     const p = new FakeProc(this.procs.length, spec);
@@ -85,7 +88,9 @@ class FakeDriver implements ProcessLimitDriver {
   }
 
   async availableMemoryBytes(): Promise<number> {
-    return this.available;
+    const v = this.available;
+    if (this.delay) await sleep(this.delay);
+    return v;
   }
 
   async cleanupStale(): Promise<string[]> {
@@ -114,6 +119,15 @@ describe("parseDiagnostics", () => {
       { severity: "warning", file: "main.typ", line: 3, column: 12, message: "unknown font family: nosuchfont" },
       { severity: "error", file: null, line: null, column: null, message: "@preview/foo:0.1.0/lib.typ:1:8: package problem" },
       { severity: "error", file: null, line: null, column: null, message: "input file not found (searched at ../nofile.typ)" },
+    ]);
+  });
+});
+
+describe("parseDiagnostics edge cases", () => {
+  it("does not read a location out of the message, and strips colors", () => {
+    expect(parseDiagnostics("error: failed: a:1:2: error: zz\n\x1b[1mx.typ:1:2: \x1b[31merror\x1b[0m: colored")).toEqual([
+      { severity: "error", file: null, line: null, column: null, message: "failed: a:1:2: error: zz" },
+      { severity: "error", file: "x.typ", line: 1, column: 2, message: "colored" },
     ]);
   });
 });
@@ -153,7 +167,8 @@ describe("BuildManager", () => {
   it("passes the profile, fonts and limits to typst compile", async () => {
     const d = new FakeDriver();
     m = new BuildManager(host, d, log);
-    const st = await m.request("sample-book", "ebook");
+    const { status: st, accepted } = await m.request("sample-book", "ebook");
+    expect(accepted).toBe("started");
     expect(st).toMatchObject({ project: "sample-book", profile: "ebook", state: "running", stale: false });
     const spec = d.procs[0].spec;
     const root = fs.realpathSync(path.join(home, "projects", "sample-book"));
@@ -172,7 +187,7 @@ describe("BuildManager", () => {
   it("defaults to book.preview_profile, and rejects unknown profiles", async () => {
     const d = new FakeDriver();
     m = new BuildManager(host, d, log);
-    expect((await m.request("sample-book")).profile).toBe("print");
+    expect((await m.request("sample-book")).status.profile).toBe("print");
     await expect(m.request("sample-book", "nope")).rejects.toThrow(/not defined/);
     d.procs[0].finish("ok");
   });
@@ -182,10 +197,10 @@ describe("BuildManager", () => {
     const events: BuildStatus[] = [];
     m = new BuildManager(host, d, log, (st) => events.push(st));
     await m.request("sample-book", "print");
-    expect((await m.request("other-book", "print")).state).toBe("queued");
+    expect(await m.request("other-book", "print")).toMatchObject({ accepted: "queued", status: { state: "queued" } });
     // 待ちが埋まっているので、これは積まれない
-    expect((await m.request("sample-book", "ebook")).state).toBe("idle");
-    expect((await m.request("sample-book", "print")).state).toBe("running");
+    expect(await m.request("sample-book", "ebook")).toMatchObject({ accepted: "dropped", status: { state: "idle" } });
+    expect(await m.request("sample-book", "print")).toMatchObject({ accepted: "dropped", status: { state: "running" } });
     expect(d.procs).toHaveLength(1);
 
     d.procs[0].finish("ok");
@@ -269,10 +284,83 @@ describe("BuildManager", () => {
     fs.utimesSync(path.join(root, "node_modules", "x.typ"), future, future);
     fs.writeFileSync(path.join(root, "notes.txt"), "");
     fs.utimesSync(path.join(root, "notes.txt"), future, future);
+    fs.mkdirSync(path.join(root, ".cache"), { recursive: true });
+    fs.writeFileSync(path.join(root, ".cache", "x.typ"), "");
+    fs.utimesSync(path.join(root, ".cache", "x.typ"), future, future);
+    m.invalidate("other-book");
     expect((await m.statusFor("other-book", "ebook")).stale).toBe(false);
-    fs.utimesSync(path.join(root, "main.typ"), future, future);
+    fs.writeFileSync(path.join(root, "refs.bib"), "");
+    fs.utimesSync(path.join(root, "refs.bib"), future, future);
+    // 計算結果は使い回す（監視の通知か TTL で捨てる）
+    expect((await m.statusFor("other-book", "ebook")).stale).toBe(false);
+    m.invalidate("other-book");
     expect((await m.statusFor("other-book", "ebook")).stale).toBe(true);
-    expect(await hasNewerSources(root, future.getTime() + 1)).toBe(false);
+    fs.rmSync(path.join(root, "refs.bib"));
+    fs.utimesSync(path.join(root, "main.typ"), future, future);
+    m.invalidate("other-book");
+    expect((await m.statusFor("other-book", "ebook")).stale).toBe(true);
+    expect(await latestSourceMtime(root)).toBe(future.getTime());
+  });
+
+  it("handles a job queued while the memory check fails (503 / exception)", async () => {
+    const d = new FakeDriver();
+    m = new BuildManager(host, d, log);
+    d.available = 0;
+    d.delay = 50;
+    const first = m.request("sample-book", "print");
+    await sleep(10);
+    expect((await m.request("other-book", "ebook")).accepted).toBe("queued");
+    // 待ちの判定のときには空きがある
+    d.available = 8 * 1024 ** 3;
+    await expect(first).rejects.toMatchObject({ status: 503 });
+    await until(() => d.procs.length === 1);
+    expect(d.procs[0].spec.cwd).toContain("other-book");
+    d.procs[0].finish("ok");
+    await until(() => m!["busy"] === false);
+
+    // 例外の経路でも待ちを処理する
+    const orig = d.availableMemoryBytes.bind(d);
+    let calls = 0;
+    d.availableMemoryBytes = async () => {
+      if (calls++ === 0) {
+        await sleep(50);
+        throw new Error("meminfo unreadable");
+      }
+      return orig();
+    };
+    const second = m.request("sample-book", "print");
+    await sleep(10);
+    expect((await m.request("sample-book", "ebook")).accepted).toBe("queued");
+    await expect(second).rejects.toThrow(/meminfo/);
+    await until(() => d.procs.length === 2);
+    expect(d.procs[1].spec.args).toContain("EBOOK=true");
+    d.procs[1].finish("ok");
+    await until(() => m!["busy"] === false);
+    expect((await m.statusFor("sample-book", "ebook")).state).toBe("idle");
+  });
+
+  it("queues the same profile once while it runs (one more build after it)", async () => {
+    const d = new FakeDriver();
+    m = new BuildManager(host, d, log);
+    expect((await m.request("sample-book", "print")).accepted).toBe("started");
+    expect((await m.request("sample-book", "print")).accepted).toBe("queued");
+    expect((await m.request("sample-book", "print")).accepted).toBe("dropped");
+    d.procs[0].finish("ok");
+    await until(() => d.procs.length === 2);
+    d.procs[1].finish("ok");
+    await until(() => m!["busy"] === false);
+    expect(d.procs).toHaveLength(2);
+  });
+
+  it("removes unfinished PDFs left by a previous run", () => {
+    const dir = path.join(home, "builds", "sample-book");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, ".print-0000000000ab.pdf.partial"), "x");
+    fs.writeFileSync(path.join(dir, "print-0000000000ab.pdf"), "x");
+    const mm = new BuildManager(host, new FakeDriver(), log);
+    expect(mm.cleanupPartials()).toEqual(["sample-book/.print-0000000000ab.pdf.partial"]);
+    expect(fs.existsSync(path.join(dir, "print-0000000000ab.pdf"))).toBe(true);
+    fs.rmSync(path.join(dir, "print-0000000000ab.pdf"));
   });
 
   it("stops the running build on close", async () => {
@@ -298,7 +386,6 @@ describe("build HTTP API", () => {
     await a.app.ready();
   });
   afterAll(async () => {
-    await a.app.close();
     fs.rmSync(home, { recursive: true, force: true });
   });
 
@@ -311,7 +398,7 @@ describe("build HTTP API", () => {
   it("starts a build (202), serves the PDF with Range, and 503s on low memory", async () => {
     const res = await a.app.inject({ method: "POST", url: "/api/projects/sample-book/build", payload: { profile: "print" } });
     expect(res.statusCode).toBe(202);
-    expect(res.json()).toMatchObject({ state: "running", profile: "print" });
+    expect(res.json()).toMatchObject({ state: "running", profile: "print", accepted: "started" });
     d.procs[0].finish("ok");
     await until(() => a.build["busy"] === false);
     const st = (await a.app.inject({ method: "GET", url: "/api/projects/sample-book/build?profile=print" })).json() as BuildStatus;
@@ -345,18 +432,59 @@ describe("build HTTP API", () => {
     d.available = 8 * 1024 ** 3;
   });
 
-  it("stops the preview first when stopPreview is true", async () => {
+  it("stops the preview only when a build is actually starting", async () => {
     let stopped = 0;
     const orig = a.preview.stop.bind(a.preview);
     a.preview.stop = async (r?: string) => {
       stopped++;
       return orig(r);
     };
+    const post = (payload: Record<string, unknown>) => a.app.inject({ method: "POST", url: "/api/projects/sample-book/build", payload });
+    // プロファイルの検査で落ちるなら止めない
+    expect((await post({ profile: "nope", stopPreview: true })).statusCode).toBe(400);
+    expect(stopped).toBe(0);
+    // 判定の前に止める（止めた後の空きメモリで判定する）
     d.available = 0;
-    const res = await a.app.inject({ method: "POST", url: "/api/projects/sample-book/build", payload: { stopPreview: true } });
-    expect(res.statusCode).toBe(503);
+    expect((await post({ stopPreview: true })).statusCode).toBe(503);
     expect(stopped).toBe(1);
     d.available = 8 * 1024 ** 3;
+    // 実行中で待ちに積むだけなら止めない
+    expect((await post({})).json()).toMatchObject({ accepted: "started" });
+    expect((await post({ stopPreview: true })).json()).toMatchObject({ accepted: "queued" });
+    expect((await post({ stopPreview: true })).json()).toMatchObject({ accepted: "dropped" });
+    expect(stopped).toBe(1);
+    const n = d.procs.length;
+    d.procs.at(-1)!.finish("ok");
+    await until(() => d.procs.length === n + 1);
+    d.procs.at(-1)!.finish("ok");
+    await until(() => a.build["busy"] === false);
+  });
+
+  it("drops the stale cache on file-changed", async () => {
+    const st = (await a.app.inject({ method: "GET", url: "/api/projects/sample-book/build?profile=print" })).json() as BuildStatus;
+    expect(st.stale).toBe(false);
+    const root = path.join(home, "projects", "sample-book");
+    const future = new Date(Date.now() + 60_000);
+    fs.utimesSync(path.join(root, "main.typ"), future, future);
+    a.watchers.broadcast({ type: "file-changed", project: "sample-book", path: "main.typ", rev: "x" });
+    const st2 = (await a.app.inject({ method: "GET", url: "/api/projects/sample-book/build?profile=print" })).json() as BuildStatus;
+    expect(st2.stale).toBe(true);
+  });
+
+  it("stops a running build when the server closes, even with a request still open", async () => {
+    await a.app.listen({ host: "127.0.0.1", port: 0 });
+    const res = await a.app.inject({ method: "POST", url: "/api/projects/sample-book/build", payload: {} });
+    expect(res.json()).toMatchObject({ accepted: "started" });
+    // 本文を送りきらない要求（server.close() はこれが終わるまで待つ）
+    const sock = net.connect((a.app.server.address() as AddressInfo).port, "127.0.0.1");
+    await new Promise((r) => sock.once("connect", r));
+    sock.write("PUT /api/projects/sample-book/file HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{");
+    await sleep(50);
+    const closing = a.app.close();
+    await until(() => a.build["running"] === undefined);
+    expect((await a.build.statusFor("sample-book", "print")).last).toMatchObject({ reason: "stopped" });
+    sock.destroy();
+    await closing;
   });
 });
 

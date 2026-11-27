@@ -147,6 +147,23 @@ describe("preview control (tinymist control plane)", () => {
     expect((await post("/api/preview/memory", { project: "sample-book", path: "../x.typ", content: "x" })).statusCode).toBe(400);
   });
 
+  it("accepts memory only for existing .typ files, up to 16MB in total", async () => {
+    const mem = (p: string, content: string) => post("/api/preview/memory", { project: "sample-book", path: p, content });
+    expect((await mem("main.typ.bak", "x")).statusCode).toBe(400);
+    expect((await mem("articles/author-a/nope.typ", "x")).statusCode).toBe(404);
+    const big = "x".repeat(1900 * 1024);
+    for (let i = 0; i < 9; i++) fs.writeFileSync(path.join(root, `m${i}.typ`), "");
+    for (let i = 0; i < 8; i++) expect((await mem(`m${i}.typ`, big)).statusCode).toBe(204);
+    // 9 本目で 16MB を超える。既にあるものの差し替えは通る
+    expect((await mem("m8.typ", big)).statusCode).toBe(413);
+    expect((await mem("m0.typ", big)).statusCode).toBe(204);
+    for (let i = 0; i < 8; i++) expect((await post("/api/preview/memory/reset", { project: "sample-book", path: `m${i}.typ` })).statusCode).toBe(204);
+    expect((await mem("m8.typ", big)).statusCode).toBe(204);
+    expect((await post("/api/preview/memory/reset", { project: "sample-book", path: "m8.typ" })).statusCode).toBe(204);
+    const p = d.procs[0];
+    await until(() => p.received.some((m) => m.event === "removeMemoryFiles" && String((m.files as string[])[0]).endsWith("m8.typ")));
+  });
+
   it("converts UTF-16 positions to characters for panelScrollTo", async () => {
     const p = d.procs[0];
     p.received.length = 0;
@@ -185,6 +202,14 @@ describe("preview control (tinymist control plane)", () => {
     p.send({ event: "editorScrollTo", filepath: path.join(root, ARTICLE), start: [9, 0], end: [9, 1] });
     await until(() => events.some((e) => e.type === "preview-jump"));
     expect(events.find((e) => e.type === "preview-jump")).not.toHaveProperty("image");
+
+    // 名前が .. で始まるだけのファイルはプロジェクトの中
+    fs.writeFileSync(path.join(root, "..notes.typ"), "x\r\ny\u2028z #image(\"n.png\")\n");
+    events.length = 0;
+    p.send({ event: "editorScrollTo", filepath: path.join(root, "..notes.typ"), start: [2, 2], end: [2, 3] });
+    await until(() => events.some((e) => e.type === "preview-jump"));
+    // \r\n と U+2028 を改行として数える（typst と同じ）
+    expect(events.find((e) => e.type === "preview-jump")).toMatchObject({ path: "..notes.typ", start: { line: 2, character: 2 }, image: { src: "n.png", line: 3 } });
 
     // プロジェクトの外のファイルは送らない
     events.length = 0;
