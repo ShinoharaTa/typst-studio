@@ -42,16 +42,18 @@ export function BookPane(props: {
   useEffect(loadStatus, [loadStatus]);
 
   const build = useCallback(
-    async (stopPreview = false) => {
+    async (stopPreview = false, manual = true) => {
       const p = profileRef.current;
       if (!p) return;
       try {
         const s = await api.build(project, p, stopPreview);
         setNomem(null);
         setError(null);
-        setStatus(s);
-        // 待ちが埋まっていると、何もせずに 202 と state: "idle" が返る
-        if (s.state === "idle") toast.info("ほかのビルドの待ちがあるので受け付けられませんでした。終わってからもう一度押してください");
+        const { accepted, ...st } = s;
+        setStatus(st);
+        // 待ちが埋まっていると、何もせずに 202 と accepted: "dropped" が返る
+        if (manual && accepted === "dropped") toast.info("ほかのビルドの待ちがあるので受け付けられませんでした。終わってからもう一度押してください");
+        else if (manual && accepted === "queued") toast.info("今のビルドが終わったらもう一度ビルドします");
       } catch (e) {
         if (e instanceof NoMemoryError) setNomem(e);
         else toast.error(`ビルドを始められません: ${(e as Error).message}`);
@@ -60,7 +62,7 @@ export function BookPane(props: {
     [project],
   );
 
-  const auto = useMemo(() => new AutoBuild(() => void build()), [build]);
+  const auto = useMemo(() => new AutoBuild(() => void build(false, false)), [build]);
   useEffect(() => () => auto.dispose(), [auto]);
   useEffect(() => auto.setActive(props.active && autoOn), [auto, props.active, autoOn]);
 

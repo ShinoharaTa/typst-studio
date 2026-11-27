@@ -98,6 +98,10 @@ export interface BuildStatus {
   stale: boolean;
 }
 
+// POST build の応答。started: 始めた、queued: 待ちに入れた（同じものが待っていればそれにまとめた）、
+// dropped: 待ちが埋まっていて受け付けなかった
+export type BuildAccepted = "started" | "queued" | "dropped";
+
 export interface Profiles {
   profiles: string[];
   // プロファイルが 1 つも無ければ null

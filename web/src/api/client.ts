@@ -1,4 +1,5 @@
 import type {
+  BuildAccepted,
   BuildStatus,
   FileContent,
   ImageCall,
@@ -112,7 +113,11 @@ export const api = {
   buildStatus: (name: string, profile: string) =>
     request<BuildStatus>("GET", `${proj(name)}/build?profile=${enc(profile)}`),
   build: (name: string, profile: string, stopPreview = false) =>
-    request<BuildStatus>("POST", `${proj(name)}/build`, stopPreview ? { profile, stopPreview: true } : { profile }),
+    request<BuildStatus & { accepted?: BuildAccepted }>(
+      "POST",
+      `${proj(name)}/build`,
+      stopPreview ? { profile, stopPreview: true } : { profile },
+    ),
 
   images: (name: string, path: string) => request<ImageList>("GET", `${proj(name)}/images?path=${enc(path)}`),
   patchImage: (name: string, body: { path: string; baseRev: string; start: number; set: ImageSet }) =>
