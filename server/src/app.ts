@@ -1,3 +1,7 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { WebSocketServer } from "ws";
 import { checkAccess } from "./auth.js";
@@ -16,7 +20,22 @@ export interface App {
 
 const STATUS_TEXT = { 400: "Bad Request", 401: "Unauthorized", 403: "Forbidden" } as const;
 
-export function buildApp(host: HostConfig, driver: ProcessLimitDriver, opts: { ws?: WatchersOptions } = {}): App {
+// 画面（web/ を Vite でビルドしたもの）。server/dist/app.js からも server/src/app.ts からも同じ場所
+export const DEFAULT_WEB_DIST = fileURLToPath(new URL("../../web/dist", import.meta.url));
+// 画面の SPA フォールバックを返さないパス
+const NON_SPA_PREFIXES = ["/api", "/preview", "/healthz"];
+
+function isSpaPath(pathname: string): boolean {
+  return !NON_SPA_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+}
+
+export interface BuildAppOptions {
+  ws?: WatchersOptions;
+  // 画面の置き場所。null で配信しない
+  webDist?: string | null;
+}
+
+export function buildApp(host: HostConfig, driver: ProcessLimitDriver, opts: BuildAppOptions = {}): App {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
   const preview = new PreviewManager(host, driver, app.log);
   const watchers = new Watchers(host, app.log, opts.ws);
@@ -131,6 +150,32 @@ export function buildApp(host: HostConfig, driver: ProcessLimitDriver, opts: { w
     const ct = res.headers["content-type"];
     if (ct) reply.header("content-type", ct);
     return reply.send(res);
+  });
+
+  // 画面の配信（/ と /assets/*）。/api /preview /healthz 以外の GET は index.html を返す（SPA）
+  const webDist = opts.webDist === undefined ? DEFAULT_WEB_DIST : opts.webDist;
+  const hasWeb = webDist !== null && fs.existsSync(path.join(webDist, "index.html"));
+  if (hasWeb) {
+    app.register(fastifyStatic, {
+      root: webDist,
+      prefix: "/",
+      index: "index.html",
+      // 名前にハッシュの付いた assets/ は変わらないので長く持たせる。index.html は毎回確かめさせる
+      cacheControl: false,
+      setHeaders: (reply, file) => {
+        const rel = path.relative(webDist, file).split(path.sep).join("/");
+        reply.header("cache-control", rel.startsWith("assets/") ? "public, max-age=31536000, immutable" : "no-cache");
+      },
+    });
+  } else if (webDist !== null) {
+    app.log.warn({ webDist }, "web UI is not built (run npm run build); / is not served");
+  }
+  app.setNotFoundHandler((req, reply) => {
+    const pathname = req.url.split("?")[0];
+    if (hasWeb && (req.method === "GET" || req.method === "HEAD") && isSpaPath(pathname)) {
+      return reply.header("cache-control", "no-cache").sendFile("index.html");
+    }
+    return reply.code(404).send({ error: "Not Found", message: `Route ${req.method}:${pathname} not found`, statusCode: 404 });
   });
 
   // ルート / への WebSocket はデータプレーンへ中継する。studio 自身の WebSocket は /api/ws
