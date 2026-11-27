@@ -5,7 +5,9 @@ import type { FastifyBaseLogger } from "fastify";
 import type WebSocket from "ws";
 import { loadProjectConfig, PROJECT_NAME_RE, type HostConfig } from "./config.js";
 import { listArticles, sha256File, TMP_FILE_RE } from "./files.js";
+import type { BuildStatus } from "./build.js";
 import { gitDir, GitError, readGitStatus, type GitInfo } from "./git.js";
+import type { PreviewEvent } from "./preview/manager.js";
 
 // プロジェクトのファイル監視と /api/ws への通知（spec 5.3 / 6.4 / 6.5）
 
@@ -14,7 +16,9 @@ export type StudioEvent =
   | { type: "file-removed"; project: string; path: string }
   | ({ type: "git-changed"; project: string } & GitState)
   | { type: "articles-changed"; project: string }
-  | { type: "config-changed"; project: string; error?: string };
+  | { type: "config-changed"; project: string; error?: string }
+  | ({ type: "build-status" } & BuildStatus)
+  | PreviewEvent;
 
 // GitInfo の各項目。読めなければ null と gitError
 export type GitState = { [K in keyof GitInfo]: GitInfo[K] | null } & { gitError?: string };
