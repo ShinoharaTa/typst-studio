@@ -1,0 +1,1139 @@
+/* 落ち着いたシンプルな見た目。スマホ優先（spec 4.2） */
+
+:root {
+  --bg: #f7f6f3;
+  --surface: #ffffff;
+  --surface-2: #efede8;
+  --border: #dedad2;
+  --text: #24231f;
+  --muted: #6d6a62;
+  --accent: #3b6e8f;
+  --accent-text: #ffffff;
+  --warn: #9a6400;
+  --warn-bg: #fbf0d9;
+  --error: #b3361e;
+  --error-bg: #fbe5df;
+  --ok: #2f7a4b;
+  --pdf-bg: #d9d6cf;
+
+  --hl-comment: #8a867c;
+  --hl-string: #4f7a2a;
+  --hl-keyword: #8a3f8f;
+  --hl-function: #2d64a0;
+  --hl-property: #9a5a12;
+  --hl-number: #a3542b;
+  --hl-heading: #1f4f73;
+  --hl-raw: #6b5a3a;
+  --hl-link: #2f7a7a;
+  --hl-bracket: #7a766d;
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --tap: 44px;
+  --radius: 8px;
+  /* ソフトキーボードで隠れる高さ（useKeyboardInset が入れる） */
+  --kb: 0px;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17181a;
+    --surface: #1f2023;
+    --surface-2: #2a2b2f;
+    --border: #3a3b40;
+    --text: #e6e4df;
+    --muted: #9c9a93;
+    --accent: #7fb0d0;
+    --accent-text: #10151a;
+    --warn: #e0b45c;
+    --warn-bg: #3a2f17;
+    --error: #f08a72;
+    --error-bg: #3d211b;
+    --ok: #7cc79a;
+    --pdf-bg: #0f1012;
+
+    --hl-comment: #807e77;
+    --hl-string: #a5c983;
+    --hl-keyword: #d4a0d8;
+    --hl-function: #8fb8e6;
+    --hl-property: #e0b07a;
+    --hl-number: #e8a07c;
+    --hl-heading: #9cc6e8;
+    --hl-raw: #c9b48a;
+    --hl-link: #82c9c9;
+    --hl-bracket: #908d85;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  /* アプリの画面なので引っ張って更新させない */
+  overscroll-behavior: none;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    system-ui,
+    -apple-system,
+    "Hiragino Sans",
+    "Noto Sans JP",
+    sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+body {
+  overflow: hidden;
+}
+
+#root {
+  height: 100%;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/* 16px 未満だと iOS がフォーカス時に拡大する */
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+
+button,
+a,
+[role="button"] {
+  touch-action: manipulation;
+}
+
+button,
+.btn,
+.tab,
+.chip {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+.muted {
+  color: var(--muted);
+}
+.small {
+  font-size: 0.85rem;
+}
+.error {
+  color: var(--error);
+}
+.pad {
+  padding: 16px;
+}
+
+/* ---- 画面の骨組み ---- */
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - var(--kb));
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  overflow: hidden;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 52px;
+  padding: env(safe-area-inset-top) 8px 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.topbar-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  padding: 4px 4px;
+}
+
+.topbar-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar > .topbar-title {
+  padding: 0 8px;
+}
+
+.topbar-sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 0.78rem;
+  min-width: 0;
+}
+
+/* ---- ボタン ---- */
+
+.btn,
+.icon-btn,
+.btn-text,
+.tab,
+.tb-btn,
+.chip,
+.link-btn,
+.seg-btn {
+  cursor: pointer;
+  transition:
+    transform 140ms var(--ease-out),
+    background-color 140ms ease;
+}
+
+.btn:active,
+.icon-btn:active,
+.tb-btn:active,
+.chip:active,
+.seg-btn:active {
+  transform: scale(0.97);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap);
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  transform: none;
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.btn-danger {
+  color: var(--error);
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--tap);
+  height: var(--tap);
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  font-size: 1.5rem;
+  line-height: 1;
+  text-decoration: none;
+}
+
+.btn-text {
+  min-height: var(--tap);
+  min-width: var(--tap);
+  border: 0;
+  background: transparent;
+  padding: 0 6px;
+}
+
+.link-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap);
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  text-align: left;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .btn:hover:not(:disabled),
+  .icon-btn:hover,
+  .tab:hover,
+  .tb-btn:hover,
+  .list-row:hover,
+  .img-row-main:hover,
+  .diag-link:hover {
+    background-color: var(--surface-2);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background-color: var(--accent);
+    filter: brightness(1.08);
+  }
+}
+
+/* ---- 一覧 ---- */
+
+.list-main {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.list-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 56px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.list-row-title {
+  font-weight: 600;
+}
+
+.list-row-sub {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.list-row-error {
+  color: var(--error);
+  font-size: 0.85rem;
+}
+
+.git {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  min-width: 0;
+}
+
+.git-branch {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.git-count.warn {
+  color: var(--warn);
+}
+
+.git-error {
+  color: var(--error);
+}
+
+.notice {
+  margin: 8px 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  overflow-wrap: anywhere;
+}
+
+.notice p {
+  margin: 0 0 8px;
+}
+
+.notice p:last-child {
+  margin-bottom: 0;
+}
+
+.notice.error {
+  background: var(--error-bg);
+  color: var(--error);
+}
+
+.badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+}
+
+.badge.warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+/* ---- 編集画面 ---- */
+
+.save-state {
+  color: var(--muted);
+}
+.save-dirty,
+.save-saving {
+  color: var(--warn);
+}
+.save-conflict,
+.save-error {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.panes {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+/* 1 ペイン: 全部のペインを重ねて置き、見えないものは visibility で隠す（アンマウントしない。
+   iframe の接続や PDF のスクロール位置をそのまま保つ） */
+.pane {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg);
+}
+
+.pane[data-active="false"] {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.editor-screen[data-wide="false"] .side,
+.editor-screen[data-wide="false"] .side-body {
+  display: contents;
+}
+
+/* 2 ペイン（900px 以上） */
+.editor-screen[data-wide="true"] .panes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.editor-screen[data-wide="true"] .pane-edit {
+  position: relative;
+  border-right: 1px solid var(--border);
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.side-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex: none;
+}
+
+.side-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.tab {
+  flex: 1;
+  min-height: var(--tap);
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.tab[aria-pressed="true"] {
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.bottom-tabs {
+  display: flex;
+  flex: none;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.bottom-tabs .tab[aria-pressed="true"] {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+/* キーボード表示中（iOS）は下部タブを隠して、エディタとツールバーに場所を譲る */
+:root[data-kb] .bottom-tabs {
+  display: none;
+}
+
+.editor-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.editor-wrap[data-loading="true"] {
+  opacity: 0.5;
+}
+
+.code-editor {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
+.code-editor .cm-editor {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  background: var(--surface);
+  font-size: 16px;
+}
+
+.code-editor .cm-scroller {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK JP", monospace;
+  line-height: 1.6;
+  overscroll-behavior: contain;
+}
+
+.code-editor .cm-gutters {
+  background: var(--surface);
+  color: var(--muted);
+  border-right: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.code-editor .cm-activeLine,
+.code-editor .cm-activeLineGutter {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.code-editor .cm-content {
+  caret-color: var(--text);
+}
+
+.code-editor .cm-cursor {
+  border-left-color: var(--text);
+}
+
+.code-editor .cm-selectionBackground,
+.code-editor .cm-focused .cm-selectionBackground {
+  background: color-mix(in srgb, var(--accent) 28%, transparent) !important;
+}
+
+.edit-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  padding: 2px 4px;
+  background: var(--surface-2);
+  border-top: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tb-btn {
+  flex: none;
+  min-width: var(--tap);
+  height: var(--tap);
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  font-size: 1.05rem;
+}
+
+.tb-char {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.tb-save {
+  padding: 0 12px;
+  font-size: 0.9rem;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.tb-save:disabled {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.tb-sep {
+  width: 1px;
+  height: 24px;
+  margin: 0 4px;
+  background: var(--border);
+  flex: none;
+}
+
+/* 「ソースへ」チップ */
+.chip-wrap {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  z-index: 5;
+  display: flex;
+  gap: 4px;
+  max-width: calc(100% - 24px);
+  transform: translateX(-50%);
+  animation: chip-in 200ms var(--ease-out);
+}
+
+@keyframes chip-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px);
+  }
+}
+
+.chip {
+  min-height: var(--tap);
+  padding: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--accent);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.14);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip-close {
+  flex: none;
+  width: var(--tap);
+  padding: 0;
+  color: var(--muted);
+}
+
+/* ---- プレビュー ---- */
+
+.preview-pane {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.preview-frame {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: #fff;
+}
+
+.preview-compile {
+  margin: 0;
+  padding: 6px 12px;
+  background: var(--error-bg);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+  max-height: 30%;
+  overflow-y: auto;
+}
+
+/* ---- 本 ---- */
+
+.pane-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.select {
+  min-height: var(--tap);
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.book-pane,
+.images-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.images-pane {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.book-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: center;
+  padding: 6px 12px;
+  flex: none;
+}
+
+.diags {
+  flex: none;
+  max-height: 35%;
+  overflow-y: auto;
+  margin: 0 12px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.diags summary {
+  min-height: var(--tap);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.diag-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.diag {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 8px 12px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  text-align: left;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.diag-link {
+  cursor: pointer;
+}
+
+.diag-sev.error {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.diag-sev.warn {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.diag-where {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--accent);
+}
+
+.diag-msg {
+  flex-basis: 100%;
+}
+
+.pdf-viewer {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--pdf-bg);
+}
+
+.pdf-scroller {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.pdf-inner {
+  position: relative;
+  margin: 0 auto;
+}
+
+.pdf-page {
+  position: absolute;
+  left: 12px;
+  background: #fff;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.18);
+}
+
+.pdf-page canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.pdf-empty,
+.pdf-error {
+  position: absolute;
+  top: 16px;
+  left: 0;
+  right: 0;
+  text-align: center;
+}
+
+.pdf-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 0 8px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  flex: none;
+}
+
+.pdf-pagenum {
+  margin-right: auto;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* ---- 画像 ---- */
+
+.img-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.img-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.img-row-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.img-thumb {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  border-radius: 4px;
+  background: var(--surface-2);
+}
+
+.img-thumb-none {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+
+.img-src {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.insert-code {
+  display: block;
+  margin-bottom: 8px;
+  overflow-wrap: anywhere;
+}
+
+/* 画像シート（Base UI Drawer。背景を塞がない） */
+.sheet-viewport {
+  position: fixed;
+  inset: 0;
+  bottom: var(--kb);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.sheet {
+  pointer-events: auto;
+  width: 100%;
+  max-width: 560px;
+  max-height: min(70dvh, calc(100dvh - var(--kb) - 48px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px 16px calc(16px + env(safe-area-inset-bottom));
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: 14px 14px 0 0;
+  background: var(--surface);
+  box-shadow: 0 -8px 32px rgb(0 0 0 / 0.16);
+  outline: 0;
+  transform: translateY(var(--drawer-swipe-movement-y, 0px));
+  transition: transform 300ms var(--ease-drawer);
+}
+
+.sheet[data-starting-style],
+.sheet[data-ending-style] {
+  transform: translateY(100%);
+}
+
+.sheet[data-ending-style] {
+  transition-duration: 200ms;
+}
+
+.sheet[data-swiping] {
+  transition-duration: 0ms;
+}
+
+.sheet-handle {
+  width: 40px;
+  height: 4px;
+  margin: 4px auto 8px;
+  border-radius: 2px;
+  background: var(--border);
+}
+
+.sheet-title {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.img-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.img-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+
+.img-head .img-thumb {
+  width: 64px;
+  height: 64px;
+}
+
+.img-head-text {
+  min-width: 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.field-label {
+  padding: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.input {
+  min-height: var(--tap);
+  width: 100%;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.input.invalid {
+  border-color: var(--error);
+}
+
+.seg {
+  display: flex;
+  gap: 4px;
+}
+
+.seg-btn {
+  min-height: var(--tap);
+  min-width: var(--tap);
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.seg-btn[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.slider {
+  flex: 1;
+  min-width: 0;
+  height: var(--tap);
+  accent-color: var(--accent);
+  /* スライダーは横に動かすので、縦のスクロールだけ許す */
+  touch-action: pan-y;
+}
+
+.num {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.num input {
+  width: 5.5em;
+  min-height: var(--tap);
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.sheet-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ---- ダイアログ ---- */
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.35);
+  transition: opacity 200ms var(--ease-out);
+  z-index: 30;
+}
+
+.dialog-backdrop[data-starting-style],
+.dialog-backdrop[data-ending-style] {
+  opacity: 0;
+}
+
+.dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 31;
+  width: min(420px, calc(100vw - 32px));
+  padding: 20px;
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 16px 48px rgb(0 0 0 / 0.24);
+  transform: translate(-50%, -50%);
+  transition:
+    opacity 200ms var(--ease-out),
+    transform 200ms var(--ease-out);
+}
+
+.dialog[data-starting-style],
+.dialog[data-ending-style] {
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.96);
+}
+
+.dialog-title {
+  margin: 0 0 8px;
+  font-size: 1.05rem;
+}
+
+.dialog-text {
+  margin: 0 0 16px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+}
