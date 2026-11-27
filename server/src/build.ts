@@ -59,7 +59,9 @@ export const BUILD_FILE_RE = /^([A-Za-z0-9][A-Za-z0-9._-]*)-([0-9a-z]{12})\.pdf$
 // 診断を読むために持っておく出力の上限
 const MAX_OUTPUT_BYTES = 256 * 1024;
 // stale の判定に使う拡張子
-const STALE_EXT = new Set([".typ", ".png", ".jpg", ".jpeg", ".webp", ".svg", ".gif"]);
+const STALE_EXT = new Set([".typ", ".png", ".jpg", ".jpeg", ".webp", ".svg", ".gif", ".pdf", ".bib", ".yaml", ".yml", ".csv", ".json", ".toml"]);
+// stale の計算結果を使い回す時間（ファイル監視の通知でも捨てる）
+const STALE_TTL_MS = 5000;
 
 function newBuildId(): string {
   return Date.now().toString(36).padStart(8, "0") + randomBytes(2).toString("hex");
@@ -67,16 +69,22 @@ function newBuildId(): string {
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-const DIAG_RE = /^(?:(.+?):(\d+):(\d+): )?(error|warning|help|hint): (.*)$/;
+// 場所の無い診断（"error: ..."）を先に見る。場所付きの形で読むと "error: a:1:2: ..." の前半をファイル名と誤読する
+const DIAG_NOFILE_RE = /^(error|warning|help|hint): (.*)$/;
+const DIAG_FILE_RE = /^(.+?):(\d+):(\d+): (error|warning|help|hint): (.*)$/;
+// ANSI の色づけ
+const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
 
 // typst compile --diagnostic-format short の出力を読む。help / hint は直前の診断の message に足す。
 // cwd = root で実行するので、パスはリポジトリ相対で出る。リポジトリの外（パッケージなど）は file を null にして message に残す
 export function parseDiagnostics(text: string): Diagnostic[] {
   const out: Diagnostic[] = [];
   for (const line of text.split("\n")) {
-    const m = DIAG_RE.exec(line.trimEnd());
+    const l = line.replace(ANSI_RE, "").trimEnd();
+    const nf = DIAG_NOFILE_RE.exec(l);
+    const m: (string | undefined)[] | null = nf ? [l, undefined, undefined, undefined, nf[1], nf[2]] : DIAG_FILE_RE.exec(l);
     if (!m) continue;
-    const [, file, ln, col, sev, msg] = m;
+    const [, file, ln, col, sev, msg] = m as [string, string | undefined, string, string, string, string];
     if (sev === "help" || sev === "hint") {
       const prev = out.at(-1);
       if (prev) prev.message += `\n${sev}: ${file ? `${file}:${ln}:${col}: ` : ""}${msg}`;
@@ -98,8 +106,10 @@ export function parseDiagnostics(text: string): Diagnostic[] {
   return out;
 }
 
-// since（ms）より新しい mtime の .typ / 画像がリポジトリ内にあるか（.git・node_modules は見ない。リンクはたどらない）
-export async function hasNewerSources(root: string, since: number): Promise<boolean> {
+// リポジトリ内のソース（.typ・画像・データ）の最新の mtime（ms）。無ければ 0。
+// 隠しディレクトリ（.git など）と node_modules には入らない。リンクはたどらない
+export async function latestSourceMtime(root: string): Promise<number> {
+  let latest = 0;
   const stack = [root];
   while (stack.length) {
     const dir = stack.pop()!;
@@ -111,19 +121,23 @@ export async function hasNewerSources(root: string, since: number): Promise<bool
     }
     for (const e of ents) {
       if (e.isDirectory()) {
-        if (e.name.toLowerCase() !== ".git" && e.name !== "node_modules") stack.push(path.join(dir, e.name));
+        if (!e.name.startsWith(".") && e.name !== "node_modules") stack.push(path.join(dir, e.name));
       } else if (e.isFile() && STALE_EXT.has(path.extname(e.name).toLowerCase())) {
         const st = await fs.promises.stat(path.join(dir, e.name)).catch(() => undefined);
-        if (st && st.mtimeMs > since) return true;
+        if (st && st.mtimeMs > latest) latest = st.mtimeMs;
       }
     }
   }
-  return false;
+  return latest;
 }
+
+export type BuildAccepted = "started" | "queued" | "dropped";
 
 interface Job {
   project: string;
   profile: string;
+  // 待ちから始めるときに、空きメモリの判定の前に呼ぶ（stopPreview）
+  beforeStart?: () => Promise<void>;
 }
 
 interface Running extends Job {
@@ -141,6 +155,8 @@ export class BuildManager {
   private emitting: Promise<void> = Promise.resolve();
   private idle: Promise<void> = Promise.resolve();
   private closed = false;
+  // プロジェクト → ソースの最新 mtime（stale 用のキャッシュ）
+  private mtimes = new Map<string, { at: number; value: Promise<number> }>();
 
   constructor(
     private host: HostConfig,
@@ -171,34 +187,51 @@ export class BuildManager {
     return parseSize(this.host.build.memoryMax) + MEMORY_MARGIN_BYTES;
   }
 
-  // ビルドを受け付ける。実行中なら待ちに 1 本だけ積む（既に待ちがあれば何もしない）。
-  // 空きメモリが足りなければ BuildError(503)
-  async request(projectName: string, profileIn?: unknown): Promise<BuildStatus> {
+  // ビルドを受け付ける。実行中なら待ちに 1 本だけ積む（既に待ちがあれば何もしない = dropped）。
+  // 空きメモリが足りなければ BuildError(503)。beforeStart は実際に始めるときだけ、空きメモリの判定の前に呼ぶ
+  async request(
+    projectName: string,
+    profileIn?: unknown,
+    beforeStart?: () => Promise<void>,
+  ): Promise<{ status: BuildStatus; accepted: BuildAccepted }> {
     const project = loadProjectConfig(this.host, projectName);
     const profile = this.resolveProfile(project, profileIn);
     if (this.closed) throw new BuildError(503, "the server is shutting down");
     if (this.busy) {
-      if (!this.queued) {
-        this.queued = { project: project.name, profile };
-        this.emit(project.name, profile);
+      if (this.queued) {
+        // 同じプロジェクト・プロファイルの待ちにまとめる（その内容が実行されるので queued）。
+        // beforeStart（stopPreview）は OR で合成する。別の待ちに押し出されたものだけ dropped
+        if (this.queued.project === project.name && this.queued.profile === profile) {
+          if (beforeStart && !this.queued.beforeStart) this.queued.beforeStart = beforeStart;
+          return { status: await this.status(project.name, profile), accepted: "queued" };
+        }
+        return { status: await this.status(project.name, profile), accepted: "dropped" };
       }
-      return this.status(project.name, profile);
+      this.queued = { project: project.name, profile, beforeStart };
+      this.emit(project.name, profile);
+      return { status: await this.status(project.name, profile), accepted: "queued" };
     }
     this.busy = true;
     let available: number;
     try {
+      await beforeStart?.();
       available = await this.driver.availableMemoryBytes();
     } catch (e) {
-      this.busy = false;
+      // 判定の間に積まれた待ちを処理する
+      this.idle = this.next();
       throw e;
     }
     const required = this.requiredBytes();
     if (available < required) {
-      this.busy = false;
+      this.idle = this.next();
       throw new BuildError(503, "not enough free memory to start a build", { reason: "nomem", available, required });
     }
+    if (this.closed) {
+      this.busy = false;
+      throw new BuildError(503, "the server is shutting down");
+    }
     this.start(project, profile);
-    return this.status(project.name, profile);
+    return { status: await this.status(project.name, profile), accepted: "started" };
   }
 
   private start(project: ProjectConfig, profile: string): void {
@@ -247,6 +280,7 @@ export class BuildManager {
     }
     let available: number;
     try {
+      await job.beforeStart?.();
       available = await this.driver.availableMemoryBytes();
     } catch (e) {
       return fail("error", (e as Error).message);
@@ -375,11 +409,50 @@ export class BuildManager {
   private async withStale(st: BuildStatus): Promise<BuildStatus> {
     if (!st.lastSuccess) return st;
     try {
-      const root = loadProjectConfig(this.host, st.project).root;
-      return { ...st, stale: await hasNewerSources(root, Date.parse(st.lastSuccess.startedAt)) };
+      return { ...st, stale: (await this.latestMtime(st.project)) > Date.parse(st.lastSuccess.startedAt) };
     } catch {
       return st;
     }
+  }
+
+  private latestMtime(project: string): Promise<number> {
+    const c = this.mtimes.get(project);
+    if (c && Date.now() - c.at < STALE_TTL_MS) return c.value;
+    const value = Promise.resolve()
+      .then(() => latestSourceMtime(loadProjectConfig(this.host, project).root));
+    value.catch(() => this.mtimes.delete(project));
+    this.mtimes.set(project, { at: Date.now(), value });
+    return value;
+  }
+
+  // ファイル監視の通知で stale のキャッシュを捨てる
+  invalidate(project: string): void {
+    this.mtimes.delete(project);
+  }
+
+  // 前回の studio が残した書きかけの PDF（.<profile>-<buildId>.pdf.partial）を消す。起動時に 1 回呼ぶ
+  cleanupPartials(): string[] {
+    const done: string[] = [];
+    let projects: string[];
+    try {
+      projects = fs.readdirSync(this.buildsDir);
+    } catch {
+      return done;
+    }
+    for (const p of projects) {
+      let files: string[];
+      try {
+        files = fs.readdirSync(path.join(this.buildsDir, p));
+      } catch {
+        continue;
+      }
+      for (const f of files) {
+        if (!/^\..+\.pdf\.partial$/.test(f)) continue;
+        fs.rmSync(path.join(this.buildsDir, p, f), { force: true });
+        done.push(`${p}/${f}`);
+      }
+    }
+    return done;
   }
 
   status(project: string, profile: string): Promise<BuildStatus> {

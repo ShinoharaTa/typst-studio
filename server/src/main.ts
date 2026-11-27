@@ -7,9 +7,11 @@ import { selectDriver } from "./limits/index.js";
 const host = loadHostConfig();
 assertBindAllowed(host.server.bind, host.container);
 const driver = await selectDriver(host.limits, path.join(host.home, "state", "children"));
-const { app, preview, watchers } = buildApp(host, driver);
+const { app, preview, watchers, build } = buildApp(host, driver);
 const stale = await driver.cleanupStale();
 if (stale.length) app.log.warn({ stopped: stale }, "stopped processes left by a previous run");
+const partials = build.cleanupPartials();
+if (partials.length) app.log.warn({ removed: partials }, "removed unfinished PDFs left by a previous run");
 
 const CAPABILITY_LABEL = { strict: "厳密", watchdog: "見張り", none: "無し" } as const;
 app.log.info(
@@ -26,7 +28,7 @@ const shutdown = async (signal: string) => {
   if (shuttingDown) return;
   shuttingDown = true;
   app.log.info({ signal }, "shutting down");
-  await preview.stop("shutdown");
+  await Promise.all([preview.stop("shutdown"), build.close()]);
   await app.close();
   process.exit(0);
 };

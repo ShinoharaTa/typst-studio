@@ -52,14 +52,18 @@ export function buildApp(host: HostConfig, driver: ProcessLimitDriver, opts: Bui
   const watchers = new Watchers(host, app.log, opts.ws);
   const preview = new PreviewManager(host, driver, app.log, (ev) => watchers.broadcast(ev));
   const build = new BuildManager(host, driver, app.log, (st) => watchers.broadcast({ type: "build-status", ...st }));
+  watchers.onEvent((ev) => {
+    if (ev.type === "file-changed" || ev.type === "file-removed" || ev.type === "git-changed") build.invalidate(ev.project);
+  });
   // /api/ws（studio 自身の通知）。upgrade は下の app.server.on("upgrade") で振り分ける
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
   // onClose は server.close() の完了後に走るので、upgrade 済みの /api/ws はその前（preClose）に切る
   app.addHook("preClose", async () => {
+    // 応答中の接続が残っていても typst を止める（onClose は server.close() の完了まで走らない）
+    await build.close();
     watchers.closeClients();
   });
   app.addHook("onClose", async () => {
-    await build.close();
     await watchers.close();
     wss.close();
   });
@@ -185,7 +189,10 @@ export function buildApp(host: HostConfig, driver: ProcessLimitDriver, opts: Bui
     { bodyLimit: MAX_FILE_BYTES * 6 + 64 * 1024 },
     async (req, reply) => {
       try {
-        return await writeProjectFile(projectRoot(host, req.params.name), req.body ?? {});
+        const r = await writeProjectFile(projectRoot(host, req.params.name), req.body ?? {});
+        // 監視の通知を待たずに stale のキャッシュを捨てる
+        build.invalidate(req.params.name);
+        return r;
       } catch (e) {
         return sendError(reply, e);
       }
@@ -210,8 +217,9 @@ export function buildApp(host: HostConfig, driver: ProcessLimitDriver, opts: Bui
         projectRoot(host, req.params.name);
         const { profile, stopPreview } = req.body ?? {};
         if (stopPreview !== undefined && typeof stopPreview !== "boolean") throw new BuildError(400, '"stopPreview" must be a boolean');
-        if (stopPreview) await preview.stop("build");
-        return reply.code(202).send(await build.request(req.params.name, profile));
+        // プレビューは、プロファイルの検査を通って実際にビルドを始めるときだけ止める
+        const r = await build.request(req.params.name, profile, stopPreview ? () => preview.stop("build") : undefined);
+        return reply.code(202).send({ ...r.status, accepted: r.accepted });
       } catch (e) {
         return sendError(reply, e);
       }
@@ -271,7 +279,9 @@ export function buildApp(host: HostConfig, driver: ProcessLimitDriver, opts: Bui
 
   app.patch<{ Params: { name: string }; Body: Record<string, unknown> | undefined }>("/api/projects/:name/images", async (req, reply) => {
     try {
-      return await patchImage(projectRoot(host, req.params.name), req.body ?? {});
+      const r = await patchImage(projectRoot(host, req.params.name), req.body ?? {});
+      if ("rev" in r) build.invalidate(req.params.name);
+      return r;
     } catch (e) {
       return sendError(reply, e);
     }
@@ -310,7 +320,9 @@ export function buildApp(host: HostConfig, driver: ProcessLimitDriver, opts: Bui
           const { article } = req.query;
           if (typeof article !== "string" || article === "") throw new FileError(400, '"article" (query) is required');
           checkArticle(project, checkRelPath(article));
-          return reply.code(201).send(await uploadImage(project, article, req.query.name, req.body));
+          const r = await uploadImage(project, article, req.query.name, req.body);
+          build.invalidate(req.params.name);
+          return reply.code(201).send(r);
         } catch (e) {
           return sendError(reply, e);
         }

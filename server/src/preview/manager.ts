@@ -5,7 +5,7 @@ import type { Duplex } from "node:stream";
 import type { FastifyBaseLogger } from "fastify";
 import WebSocket from "ws";
 import { ConfigError, loadProjectConfig, resolveInside, type HostConfig, type ProjectConfig } from "../config.js";
-import { checkRelPath, MAX_FILE_BYTES, readProjectFile } from "../files.js";
+import { checkRelPath, FileError, MAX_FILE_BYTES, readProjectFile, resolveExistingFile } from "../files.js";
 import { findImageCallAt, imageCalls, lineStarts, type ImageCall } from "../images.js";
 import type { ExitInfo, LimitedProcess, ProcessLimitDriver } from "../limits/driver.js";
 import { upstreamOrigin } from "./relay.js";
@@ -27,6 +27,9 @@ export type PreviewEvent =
   | ({ type: "preview-status" } & PreviewStatus)
   | { type: "preview-jump"; project: string; path: string; start: TextPosition; end: TextPosition; image?: ImageCall }
   | { type: "preview-compile"; project: string; ok: boolean; message?: string };
+
+// updateMemoryFiles で持っておく内容の合計の上限
+export const MAX_MEMORY_BYTES = 16 * 1024 * 1024;
 
 // 制御の API のエラー（プレビュー停止中・別プロジェクト・制御接続なし）
 export class PreviewError extends Error {
@@ -369,7 +372,7 @@ export class PreviewManager {
     const { filepath, start, end } = msg;
     if (typeof filepath !== "string" || !isPair(start)) return;
     const r = path.relative(run.root, filepath);
-    if (r === "" || r.startsWith("..") || path.isAbsolute(r)) {
+    if (r === "" || r === ".." || r.startsWith(`..${path.sep}`) || path.isAbsolute(r)) {
       this.log.info({ filepath }, "editorScrollTo outside the project; ignored");
       return;
     }
@@ -379,8 +382,13 @@ export class PreviewManager {
     const e = isPair(end) ? fromCodePoints(text, end) : s;
     const ev: PreviewEvent = { type: "preview-jump", project: run.project, path: rel, start: s, end: e };
     if (text !== undefined && rel.endsWith(".typ")) {
-      const image = findImageCallAt(text, imageCalls(text, rel), offsetOf(text, s));
-      if (image) ev.image = image;
+      try {
+        const image = findImageCallAt(text, imageCalls(text, rel), offsetOf(text, s));
+        if (image) ev.image = image;
+      } catch (err) {
+        // 深すぎる入れ子など。位置だけ送る
+        this.log.info({ path: rel, err: (err as Error).message }, "could not match image() calls");
+      }
     }
     this.notify(ev);
   }
@@ -412,10 +420,19 @@ export class PreviewManager {
   }
 
   // 未保存の内容を tinymist に渡す（updateMemoryFiles）
+  // 受け付けるのはリポジトリ内に実在する .typ だけ。持っておく内容は合計 MAX_MEMORY_BYTES まで
   updateMemory(project: unknown, rel: unknown, content: unknown): void {
     if (typeof content !== "string") throw new ConfigError('"content" (string) is required');
-    if (Buffer.byteLength(content) > MAX_FILE_BYTES) throw new ConfigError(`content is larger than ${MAX_FILE_BYTES} bytes`);
+    const bytes = Buffer.byteLength(content);
+    if (bytes > MAX_FILE_BYTES) throw new FileError(413, `content is larger than ${MAX_FILE_BYTES} bytes`);
     const t = this.controlTarget(project, rel);
+    if (!t.rel.endsWith(".typ")) throw new FileError(400, `"${t.rel}" is not a .typ file`);
+    resolveExistingFile(t.run.root, t.rel);
+    let total = bytes;
+    for (const [k, v] of t.run.memory) if (k !== t.rel) total += Buffer.byteLength(v);
+    if (total > MAX_MEMORY_BYTES) {
+      throw new FileError(413, `unsaved buffers would exceed ${MAX_MEMORY_BYTES} bytes in total; save or reset some files first`);
+    }
     this.sendControl(t.run, { event: "updateMemoryFiles", files: { [t.abs]: content } });
     t.run.memory.set(t.rel, content);
   }
@@ -465,7 +482,8 @@ function isPair(v: unknown): v is [number, number] {
 function lineText(text: string, line: number): string {
   const starts = lineStarts(text);
   if (line >= starts.length) return "";
-  return text.slice(starts[line], line + 1 < starts.length ? starts[line + 1] - 1 : undefined);
+  // 行末の改行（\r\n は 2 文字）は含めない
+  return text.slice(starts[line], line + 1 < starts.length ? starts[line + 1] : undefined).replace(/(?:\r\n|[\n\x0B\x0C\r\u0085\u2028\u2029])$/, "");
 }
 
 // [行, 文字（コードポイント）] → 行と UTF-16 の位置。内容が読めなければそのまま

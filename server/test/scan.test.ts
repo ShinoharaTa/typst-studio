@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { editImageCall, findImageCallAt, imageCalls, normalizeUploadName, resolveImagePath, sniffImage } from "../src/images.js";
-import { scanImageCalls, typstString, unescapeString } from "../src/scan.js";
+import { MAX_DEPTH, ScanDepthError, scanImageCalls, typstString, unescapeString } from "../src/scan.js";
 
 const P = "articles/author-a/article.typ";
 const srcs = (t: string) => imageCalls(t, P).map((c) => c.src);
@@ -100,6 +100,36 @@ describe("scanImageCalls (spec 4.4)", () => {
     const [c] = imageCalls(t, P);
     expect(c.line).toBe(1);
     expect(c.column).toBe(t.indexOf("image") + 1);
+  });
+
+  it("reads a named argument with a comment before the colon, and does not duplicate it", () => {
+    const t = '#image("a.png", width /* c */ : 5%)';
+    const [c] = imageCalls(t, P);
+    expect(c.width).toBe("5%");
+    expect(editImageCall(t, P, c.start, { width: "6%" }).content).toBe('#image("a.png", width /* c */ : 6%)');
+  });
+
+  it("does not list let image(...) = definitions", () => {
+    expect(srcs('#let image(src, w: 1) = box(src)\n#image("a.png")')).toEqual(["a.png"]);
+  });
+
+  it("counts \\r\\n, \\r, U+0085, U+2028 and U+2029 as line breaks like typst", () => {
+    const t = 'a\r\nb\rc\u0085d\u2028e\u2029#image("a.png") // c\u2028#image("b.png")';
+    const calls = imageCalls(t, P);
+    expect(calls.map((c) => [c.src, c.line, c.column])).toEqual([
+      ["a.png", 6, 2],
+      ["b.png", 7, 2],
+    ]);
+    // 改行で終わる文（#let）
+    expect(srcs('#let x = 1\u2028#image("c.png")')).toEqual(["c.png"]);
+  });
+
+  it("throws ScanDepthError instead of RangeError on deep nesting", () => {
+    for (const t of ["#" + "(".repeat(200000), "#f" + "[#f".repeat(100000), "#image(" + "image(".repeat(50000), "#context context ".repeat(1) + "context ".repeat(100000)]) {
+      expect(() => scanImageCalls(t)).toThrow(ScanDepthError);
+    }
+    expect(scanImageCalls("#" + "(".repeat(MAX_DEPTH - 10) + 'image("a.png")')).toHaveLength(1);
+    expect(() => editImageCall("#" + "(".repeat(200000), P, 0, { width: "1%" })).toThrow(/cannot be scanned/);
   });
 
   it("does not make an unclosed call editable", () => {

@@ -25,20 +25,42 @@ export interface ScannedCall {
 }
 
 const IDENT_RE = /[\p{XID_Start}_][\p{XID_Continue}_-]*/uy;
-const NAMED_RE = /([\p{XID_Start}_][\p{XID_Continue}_-]*)\s*:/uy;
 const IDENT_CHAR_RE = /[\p{XID_Continue}_-]/u;
 const LINK_CHAR_RE = /[\p{L}\p{N}!#$%&*+,\-./:;=?@_~']/u;
-const SET_BEFORE_RE = /(?:^|[^\p{XID_Continue}_-])set\s+$/u;
+// set image(...)（スタイルの指定）と let image(...) =（定義）
+const SET_BEFORE_RE = /(?:^|[^\p{XID_Continue}_-])(?:set|let)\s+$/u;
+// これより深い入れ子は読まない（再帰で RangeError にしない）
+export const MAX_DEPTH = 256;
 // 改行か ; までを 1 文として読むキーワード（マークアップ中の #let など）
 const STATEMENT_KEYWORDS = new Set(["let", "set", "show", "import", "include", "return", "break", "continue"]);
 // 後ろのブロックで終わるキーワード（else が続けば続ける）
 const BLOCK_KEYWORDS = new Set(["if", "for", "while"]);
 
-const isSpace = (c: string) => c === " " || c === "\t" || c === "\n" || c === "\r";
+// typst と同じ改行（is_newline）。\r\n は 1 つの改行
+export const NEWLINE_RE = /\r\n|[\n\x0B\x0C\r\u0085\u2028\u2029]/g;
+const NEWLINE_CHARS = "\n\x0B\x0C\r\u0085\u2028\u2029";
+export const isNewline = (c: string | undefined) => c !== undefined && c !== "" && NEWLINE_CHARS.includes(c);
+const isSpace = (c: string) => c === " " || c === "\t" || isNewline(c);
+
+export class ScanDepthError extends Error {
+  constructor() {
+    super(`nesting deeper than ${MAX_DEPTH} levels`);
+  }
+}
 
 class Scanner {
   i = 0;
   calls: ScannedCall[] = [];
+  private depth = 0;
+
+  private nest<T>(fn: () => T): T {
+    if (++this.depth > MAX_DEPTH) throw new ScanDepthError();
+    try {
+      return fn();
+    } finally {
+      this.depth--;
+    }
+  }
 
   constructor(readonly s: string) {}
 
@@ -52,8 +74,9 @@ class Scanner {
     const i = this.i;
     if (s[i] !== "/") return false;
     if (s[i + 1] === "/") {
-      const nl = s.indexOf("\n", i);
-      this.i = nl < 0 ? s.length : nl;
+      let j = i + 2;
+      while (j < s.length && !isNewline(s[j])) j++;
+      this.i = j;
       return true;
     }
     if (s[i + 1] === "*") {
@@ -118,6 +141,10 @@ class Scanner {
 
   // マークアップ。close が "]" なら対応する ] を読んで戻る。null は末尾まで
   markup(close: "]" | null): void {
+    this.nest(() => this.markupInner(close));
+  }
+
+  private markupInner(close: "]" | null): void {
     const s = this.s;
     let depth = 0;
     while (!this.eof) {
@@ -145,6 +172,10 @@ class Scanner {
 
   // 数式。閉じる $ を読んで戻る
   math(): void {
+    this.nest(() => this.mathInner());
+  }
+
+  private mathInner(): void {
     const s = this.s;
     while (!this.eof) {
       const c = s[this.i];
@@ -163,6 +194,10 @@ class Scanner {
 
   // マークアップ・数式中の # の後ろ（埋め込みコード式）
   embedded(): void {
+    this.nest(() => this.embeddedInner());
+  }
+
+  private embeddedInner(): void {
     const s = this.s;
     const c = s[this.i];
     if (c === "{") {
@@ -233,7 +268,7 @@ class Scanner {
     const s = this.s;
     while (!this.eof) {
       const c = s[this.i];
-      if (c === "\n" || c === ";" || c === "]") return;
+      if (isNewline(c) || c === ";" || c === "]") return;
       if (blockEnds && (c === "{" || c === "[")) {
         this.step();
         let j = this.i;
@@ -248,6 +283,10 @@ class Scanner {
 
   // コード。stops のどれかに当たったら（読まずに）その文字を返す。末尾なら null
   codeUntil(stops: string): string | null {
+    return this.nest(() => this.codeUntilInner(stops));
+  }
+
+  private codeUntilInner(stops: string): string | null {
     while (!this.eof) {
       const c = this.s[this.i];
       if (stops.includes(c)) return c;
@@ -297,6 +336,10 @@ class Scanner {
 
   // image( の引数を 1 つずつ読む。this.i は ( の位置
   private imageCall(start: number): void {
+    this.nest(() => this.imageCallInner(start));
+  }
+
+  private imageCallInner(start: number): void {
     const s = this.s;
     const argsOpen = this.i;
     this.i++;
@@ -318,12 +361,17 @@ class Scanner {
       const spread = s.startsWith("..", this.i);
       let name: string | null = null;
       if (!spread) {
-        NAMED_RE.lastIndex = this.i;
-        const m = NAMED_RE.exec(s);
+        // name: value（名前と : の間の空白・コメントも許す）
+        IDENT_RE.lastIndex = this.i;
+        const m = IDENT_RE.exec(s);
         if (m) {
-          name = m[1];
           this.i += m[0].length;
           this.trivia();
+          if (s[this.i] === ":") {
+            name = m[0];
+            this.i++;
+            this.trivia();
+          } else this.i = argStart;
         }
       }
       const valueStart = this.i;

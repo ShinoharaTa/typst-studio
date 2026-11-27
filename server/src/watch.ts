@@ -291,7 +291,15 @@ export class Watchers {
     }
   }
 
+  // studio の中で通知を受け取る（stale のキャッシュを捨てるなど）
+  private listeners: ((ev: StudioEvent) => void)[] = [];
+
+  onEvent(cb: (ev: StudioEvent) => void): void {
+    this.listeners.push(cb);
+  }
+
   broadcast(ev: StudioEvent): void {
+    for (const cb of this.listeners) cb(ev);
     const msg = JSON.stringify(ev);
     for (const ws of [...this.clients.keys()]) {
       if (ws.readyState !== ws.OPEN) continue;
