@@ -59,7 +59,7 @@ export function EditorScreen({ route }: { route: EditRoute }) {
   const [imagesKey, setImagesKey] = useState(0);
   const [lastSide, setLastSide] = useState<SideTab>("preview");
   // 別のファイルを開いた後に移動する位置（1 始まり）
-  const pendingGoto = useRef<{ line: number; column: number } | null>(null);
+  const pendingGoto = useRef<{ line: number; column: number; codepoints?: boolean } | null>(null);
 
   const sideTab: SideTab = tab === "edit" ? lastSide : tab;
   useEffect(() => {
@@ -128,7 +128,7 @@ export function EditorScreen({ route }: { route: EditRoute }) {
         setLoading(false);
         const g = pendingGoto.current;
         pendingGoto.current = null;
-        if (g) requestAnimationFrame(() => editor.current?.goto(g.line, g.column));
+        if (g) requestAnimationFrame(() => editor.current?.goto(g.line, g.column, g));
       },
       (e: Error) => {
         if (cancelled) return;
@@ -145,12 +145,20 @@ export function EditorScreen({ route }: { route: EditRoute }) {
   }, [project, file]);
 
   // 記事のプレビューを始める
+  const applyStatus = useCallback(
+    (st: PreviewStatus) => {
+      setPreview(st);
+      if (st.project === project && st.compile) setCompile({ ok: st.compile.ok });
+    },
+    [project],
+  );
+
   const startPreview = useCallback(() => {
     setPreviewStarting(true);
     setPreviewError(null);
     api.previewStart(project, article).then(
       (st) => {
-        setPreview(st);
+        applyStatus(st);
         setPreviewStarting(false);
       },
       (e: Error) => {
@@ -158,14 +166,14 @@ export function EditorScreen({ route }: { route: EditRoute }) {
         setPreviewError(e.message);
       },
     );
-  }, [project, article]);
+  }, [project, article, applyStatus]);
   // 既にこの記事で動いていれば起動し直さない（start は動いているものを止めてから起動する）
   useEffect(() => {
     let cancelled = false;
     api.previewStatus().then(
       (st) => {
         if (cancelled) return;
-        if (st.state === "running" && st.project === project && st.article === article) setPreview(st);
+        if (st.state === "running" && st.project === project && st.article === article) applyStatus(st);
         else startPreview();
       },
       () => !cancelled && startPreview(),
@@ -173,7 +181,7 @@ export function EditorScreen({ route }: { route: EditRoute }) {
     return () => {
       cancelled = true;
     };
-  }, [project, article, startPreview]);
+  }, [project, article, startPreview, applyStatus]);
 
   useEffect(() => {
     if (snap.state === "error" && snap.error) toast.error(`保存できません: ${snap.error}`);
@@ -197,15 +205,15 @@ export function EditorScreen({ route }: { route: EditRoute }) {
 
   // ソースの位置へ（1 始まり）。別のファイルなら保存してから開く
   const gotoSource = useCallback(
-    async (path: string, line: number, column = 1) => {
+    async (path: string, line: number, column = 1, codepoints = false) => {
       const r = routeRef.current;
       if (!wide) setTab("edit");
       if (path === r.file) {
-        requestAnimationFrame(() => editor.current?.goto(line, column));
+        requestAnimationFrame(() => editor.current?.goto(line, column, { codepoints }));
         return;
       }
       await session.current?.flush();
-      pendingGoto.current = { line, column };
+      pendingGoto.current = { line, column, codepoints };
       navigate({ ...r, file: path, tab: wide ? r.tab : "edit" });
     },
     [wide, setTab],
@@ -228,7 +236,7 @@ export function EditorScreen({ route }: { route: EditRoute }) {
           break;
         case "preview-status": {
           const { type: _t, ...st } = e;
-          setPreview(st);
+          applyStatus(st);
           break;
         }
         case "preview-compile":
@@ -243,7 +251,7 @@ export function EditorScreen({ route }: { route: EditRoute }) {
       }
     },
     () => {
-      api.previewStatus().then(setPreview, () => undefined);
+      api.previewStatus().then(applyStatus, () => undefined);
       const s = session.current;
       if (s?.rev) api.readFile(project, file).then((f) => void s.external(f.rev), () => undefined);
     },
@@ -294,7 +302,7 @@ export function EditorScreen({ route }: { route: EditRoute }) {
         />
       </section>
       <section className="pane pane-book" data-active={shown("book")} aria-label="本">
-        <BookPane project={project} active={shown("book") && pageVisible} onGoto={(f, l, c) => void gotoSource(f, l, c)} />
+        <BookPane project={project} active={shown("book") && pageVisible} onGoto={(f, l, c) => void gotoSource(f, l, c, true)} />
       </section>
       <section className="pane pane-images" data-active={shown("images")} aria-label="画像">
         <ImagesPane

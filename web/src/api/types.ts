@@ -27,9 +27,11 @@ export interface PreviewStatus {
   startedAt: string | null;
   viewers: number;
   lastError: string | null;
+  // 最後に届いたコンパイル結果（tinymist の compileStatus。エラーの内容は届かない）
+  compile?: { ok: boolean; at: string } | null;
 }
 
-// 0 始まり
+// 0 始まり。character は UTF-16 の位置（CodeMirror と同じ）
 export interface Position {
   line: number;
   character: number;
@@ -40,7 +42,7 @@ export interface ImageCall {
   // 呼び出し全体の文字オフセット [start, end)
   start: number;
   end: number;
-  // 1 始まり
+  // 1 始まり。start / end / column は UTF-16 の位置
   line: number;
   column: number;
   src: string | null;
@@ -63,6 +65,7 @@ export interface ImageSet {
   alt?: string | null;
 }
 
+// column は typst の出力のまま（コードポイント単位。UTF-16 ではない）
 export interface Diagnostic {
   severity: "error" | "warning";
   file: string | null;
@@ -97,7 +100,8 @@ export interface BuildStatus {
 
 export interface Profiles {
   profiles: string[];
-  default: string;
+  // プロファイルが 1 つも無ければ null
+  default: string | null;
 }
 
 export interface UploadResult {

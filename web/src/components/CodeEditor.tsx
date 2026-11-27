@@ -10,14 +10,15 @@ import {
   lineNumbers,
 } from "@codemirror/view";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { codePointsToUtf16 } from "../lib/text";
 import { typstHighlight, typstLanguage } from "../lib/typst-lang";
 
 export interface CodeEditorHandle {
   getDoc(): string;
   // 内容を差し替える。カーソルはできるだけ同じ行に残す
   setDoc(content: string, opts?: { resetHistory?: boolean }): void;
-  // 1 始まりの行・列へ移動して画面に出す
-  goto(line: number, column?: number): void;
+  // 1 始まりの行・列へ移動して画面に出す。列は UTF-16 単位（codepoints なら typst の診断と同じコードポイント単位）
+  goto(line: number, column?: number, opts?: { codepoints?: boolean }): void;
   insert(text: string): void;
   undo(): void;
   redo(): void;
@@ -102,12 +103,13 @@ export const CodeEditor = forwardRef<CodeEditorHandle, Props>(function CodeEdito
         const line = doc.line(Math.min(lineNo, doc.lines));
         v.dispatch({ selection: EditorSelection.cursor(Math.min(line.from + col, line.to)) });
       },
-      goto(line, column = 1) {
+      goto(line, column = 1, opts = {}) {
         const v = view.current;
         if (!v) return;
         const doc = v.state.doc;
         const l = doc.line(Math.max(1, Math.min(line, doc.lines)));
-        const pos = Math.min(l.from + Math.max(0, column - 1), l.to);
+        const col = Math.max(0, column - 1);
+        const pos = Math.min(l.from + (opts.codepoints ? codePointsToUtf16(l.text, col) : col), l.to);
         v.dispatch({
           selection: EditorSelection.cursor(pos),
           effects: EditorView.scrollIntoView(pos, { y: "center" }),

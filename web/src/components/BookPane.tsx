@@ -47,6 +47,8 @@ export function BookPane(props: {
         setNomem(null);
         setError(null);
         setStatus(s);
+        // 待ちが埋まっていると、何もせずに 202 と state: "idle" が返る
+        if (s.state === "idle") toast.info("ほかのビルドの待ちがあるので受け付けられませんでした。終わってからもう一度押してください");
       } catch (e) {
         if (e instanceof NoMemoryError) setNomem(e);
         else toast.error(`ビルドを始められません: ${(e as Error).message}`);
