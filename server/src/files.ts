@@ -12,7 +12,7 @@ export const TMP_FILE_RE = /\.typst-studio-\d+-[0-9a-f]+\.tmp$/;
 
 export class FileError extends Error {
   constructor(
-    readonly status: 400 | 403 | 404 | 409 | 413 | 415,
+    readonly status: 400 | 403 | 404 | 409 | 413 | 415 | 422,
     message: string,
     readonly extra: Record<string, unknown> = {},
   ) {
@@ -258,6 +258,61 @@ export function writeProjectFile(root: string, body: { path?: unknown; content?:
       throw e;
     }
     return { rev: sha256(buf) };
+  }));
+}
+
+// 実在するファイルの実パス（バイナリの配信用。readProjectFile と同じ検査）
+export function resolveExistingFile(root: string, relIn: unknown): { path: string; real: string; size: number } {
+  const rel = checkRelPath(relIn);
+  return mapFs(rel, () => {
+    const t = resolveTarget(root, rel);
+    if (!t.exists) throw new FileError(404, `"${rel}" does not exist`);
+    return { path: rel, real: t.real, size: fs.statSync(t.real).size };
+  });
+}
+
+// ルート配下のディレクトリを（無ければ）作る。途中のシンボリックリンクがルートの外や .git/ を指していれば 403
+function mkdirInside(root: string, dirRel: string): void {
+  if (dirRel === ".") return;
+  let cur = root;
+  for (const seg of dirRel.split("/")) {
+    const next = path.join(cur, seg);
+    if (!fs.lstatSync(next, { throwIfNoEntry: false })) fs.mkdirSync(next);
+    const real = fs.realpathSync(next);
+    checkRealInside(root, real, dirRel);
+    if (!fs.statSync(real).isDirectory()) throw new FileError(400, `"${dirRel}" is not a directory`);
+    cur = real;
+  }
+}
+
+// 新しいファイルを作る（画像のアップロード用）。既にあれば false。親ディレクトリが無ければ作る。
+// 一時ファイルに書いてから link で置く（既存のファイルを上書きせず、途中の内容も見せない）
+export function createProjectFile(root: string, relIn: unknown, buf: Buffer): Promise<boolean> {
+  const rel = checkRelPath(relIn);
+  return serial(root, () => mapFs(rel, () => {
+    mkdirInside(root, path.posix.dirname(rel));
+    const t = resolveTarget(root, rel);
+    if (t.exists) return false;
+    const tmp = path.join(path.dirname(t.real), `.${path.basename(t.real)}.typst-studio-${process.pid}-${crypto.randomBytes(6).toString("hex")}.tmp`);
+    try {
+      const fd = fs.openSync(tmp, "wx", 0o666);
+      try {
+        fs.writeFileSync(fd, buf);
+        fs.fsyncSync(fd);
+      } finally {
+        fs.closeSync(fd);
+      }
+      checkRealInside(root, fs.realpathSync(path.dirname(tmp)), rel);
+      try {
+        fs.linkSync(tmp, t.real);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === "EEXIST") return false;
+        throw e;
+      }
+      return true;
+    } finally {
+      fs.rmSync(tmp, { force: true });
+    }
   }));
 }
 
