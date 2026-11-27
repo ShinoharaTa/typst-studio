@@ -199,9 +199,11 @@ export class BuildManager {
     if (this.closed) throw new BuildError(503, "the server is shutting down");
     if (this.busy) {
       if (this.queued) {
-        // 同じプロジェクト・プロファイルの待ちにまとめる。beforeStart（stopPreview）は OR で合成する
-        if (this.queued.project === project.name && this.queued.profile === profile && beforeStart && !this.queued.beforeStart) {
-          this.queued.beforeStart = beforeStart;
+        // 同じプロジェクト・プロファイルの待ちにまとめる（その内容が実行されるので queued）。
+        // beforeStart（stopPreview）は OR で合成する。別の待ちに押し出されたものだけ dropped
+        if (this.queued.project === project.name && this.queued.profile === profile) {
+          if (beforeStart && !this.queued.beforeStart) this.queued.beforeStart = beforeStart;
+          return { status: await this.status(project.name, profile), accepted: "queued" };
         }
         return { status: await this.status(project.name, profile), accepted: "dropped" };
       }

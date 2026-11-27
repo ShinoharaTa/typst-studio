@@ -344,7 +344,7 @@ describe("BuildManager", () => {
     m = new BuildManager(host, d, log);
     expect((await m.request("sample-book", "print")).accepted).toBe("started");
     expect((await m.request("sample-book", "print")).accepted).toBe("queued");
-    expect((await m.request("sample-book", "print")).accepted).toBe("dropped");
+    expect((await m.request("sample-book", "print")).accepted).toBe("queued");
     d.procs[0].finish("ok");
     await until(() => d.procs.length === 2);
     d.procs[1].finish("ok");
@@ -466,8 +466,8 @@ describe("build HTTP API", () => {
 
     // 同じ待ちにまとめられた依頼の stopPreview は OR で合成する
     expect((await post({})).json()).toMatchObject({ accepted: "queued" });
-    expect((await post({ stopPreview: true })).json()).toMatchObject({ accepted: "dropped" });
-    expect((await post({})).json()).toMatchObject({ accepted: "dropped" });
+    expect((await post({ stopPreview: true })).json()).toMatchObject({ accepted: "queued" });
+    expect((await post({})).json()).toMatchObject({ accepted: "queued" });
     n = d.procs.length;
     d.procs.at(-1)!.finish("ok");
     await until(() => d.procs.length === n + 1);
