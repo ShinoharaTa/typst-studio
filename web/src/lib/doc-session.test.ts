@@ -201,6 +201,87 @@ describe("DocSession", () => {
     expect(t.s.snapshot.state).toBe("clean");
   });
 
+  it("clears a save error when the text goes back to what is on disk (e.g. undo)", async () => {
+    const t = setup();
+    await t.s.load();
+    t.type("mine");
+    t.failNext(new Error("network down"));
+    expect(await t.s.flush()).toBe(false);
+    expect(t.s.snapshot.state).toBe("error");
+    t.type("a"); // 元に戻す
+    expect(t.s.snapshot.state).toBe("clean");
+    expect(t.s.snapshot.error).toBeUndefined();
+    expect(t.s.safe).toBe(true);
+    expect(await t.s.flush()).toBe(true);
+    expect(t.writes).toHaveLength(1);
+  });
+
+  it("clears a save error on save when there is nothing left to save", async () => {
+    const t = setup();
+    await t.s.load();
+    t.type("mine");
+    t.failNext(new Error("network down"));
+    await t.s.save();
+    // 外から入力を戻された（edited を通らない経路）ときも save で解く
+    (t.s as unknown as { doc: string }).doc = "a";
+    expect(await t.s.save()).toBe(true);
+    expect(t.s.snapshot.state).toBe("clean");
+  });
+
+  it("never runs two writes at once, even when an earlier save's cleanup finishes late", async () => {
+    let disk = { content: "a", rev: "r0" };
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let n = 0;
+    const gates: (() => void)[] = [];
+    let holdRead: Promise<void> | null = null;
+    const s = new DocSession(
+      {
+        read: async () => {
+          if (holdRead) await holdRead;
+          return { ...disk };
+        },
+        write: async (content, baseRev) => {
+          inFlight++;
+          maxInFlight = Math.max(maxInFlight, inFlight);
+          await new Promise<void>((r) => gates.push(r));
+          inFlight--;
+          if (baseRev !== disk.rev) throw new ConflictError("x", disk.rev, disk.content, {});
+          disk = { content, rev: `w${++n}` };
+          return { rev: disk.rev };
+        },
+      },
+      () => undefined,
+      () => undefined,
+    );
+    const step = () => vi.advanceTimersByTimeAsync(0);
+    await s.load();
+    s.edited("ab");
+    const p1 = s.save();
+    await step();
+    void s.external("rForeign"); // 保存中に届いた外部の変更
+    let releaseRead!: () => void;
+    holdRead = new Promise((r) => (releaseRead = r));
+    gates.shift()!(); // 1 回目の書き込みが終わる → 外部の変更を読みに行って止まる
+    await step();
+    s.edited("abc");
+    const p2 = s.save(); // 2 回目が始まる
+    await step();
+    holdRead = null;
+    releaseRead(); // 1 回目の後始末が終わる
+    await p1;
+    s.edited("abcd");
+    const p3 = s.save(); // 2 回目の途中なので待ちに回るはず
+    await step();
+    expect(maxInFlight).toBe(1);
+    while (gates.length) {
+      gates.shift()!();
+      await step();
+    }
+    await Promise.all([p2, p3]);
+    expect(maxInFlight).toBe(1);
+  });
+
   it("passes keepalive through", async () => {
     const t = setup();
     await t.s.load();

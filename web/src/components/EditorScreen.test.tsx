@@ -187,6 +187,56 @@ describe("leaving the editor", () => {
     expect(puts.at(-1)).toEqual({ path: "a.typ", content: "X= A\n", baseRev: "ra" });
   });
 
+  it("keeps the history as [list, editor] when Back is stopped", async () => {
+    await go("#/p/sample-book");
+    root = createRoot(host);
+    await act(async () => root!.render(<App />));
+    await until(() => host.textContent?.includes("a.typ") ?? false, "article list");
+    await go("#/p/sample-book/edit/a.typ");
+    await until(() => !!host.querySelector(".cm-editor") && docText() === "= A\n", "file loaded");
+    const len = window.history.length;
+    type("X");
+    putReply = () => {
+      throw new TypeError("Failed to fetch");
+    };
+    await act(async () => window.history.back());
+    for (let i = 0; i < 10; i++) await tick();
+    expect(window.location.hash).toBe("#/p/sample-book/edit/a.typ");
+    expect(host.querySelector(".cm-editor")).not.toBeNull();
+    expect(window.history.length).toBe(len);
+    // 保存できるようになれば、もう一度の「戻る」で一覧へ（一覧のエントリが残っている）
+    putReply = null;
+    await act(async () => window.history.back());
+    await until(() => !host.querySelector(".cm-editor"), "editor closed");
+    expect(window.location.hash).toBe("#/p/sample-book");
+    expect(puts.at(-1)).toEqual({ path: "a.typ", content: "X= A\n", baseRev: "ra" });
+  });
+
+  it("ignores a pending save result when the URL returns to the editor meanwhile", async () => {
+    await openEditor();
+    type("X");
+    let release!: (r: Response) => void;
+    // PUT の応答を待たせる
+    const pending = new Promise<Response>((r) => (release = r));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string, init: RequestInit = {}) => {
+        if (String(input).endsWith("/file") && init.method === "PUT") {
+          puts.push(JSON.parse(String(init.body)) as Put);
+          return pending;
+        }
+        return fakeFetch(input, init);
+      }),
+    );
+    await go("#/p/sample-book");
+    expect(host.querySelector(".cm-editor")).not.toBeNull(); // 保存待ち
+    await go("#/p/sample-book/edit/a.typ"); // 待っている間に元の URL へ
+    await act(async () => release(json(200, { rev: "r9" })));
+    for (let i = 0; i < 10; i++) await tick();
+    expect(host.querySelector(".cm-editor")).not.toBeNull();
+    expect(window.location.hash).toBe("#/p/sample-book/edit/a.typ");
+  });
+
   it("switching tabs does not save or block", async () => {
     await openEditor();
     type("X");

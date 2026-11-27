@@ -58,6 +58,9 @@ export function EditorScreen({ route }: { route: EditRoute }) {
   const [compile, setCompile] = useState<{ ok: boolean; message?: string } | null>(null);
   const [jump, setJump] = useState<Jump | null>(null);
   const [sheet, setSheet] = useState<ImageTarget | null>(null);
+  // 画像の適用の後、ディスクの内容を読み直すまで（読み取り専用のままにする）
+  const [reloadingAfterApply, setReloadingAfterApply] = useState(false);
+  const locked = sheet !== null || reloadingAfterApply;
   const [imagesKey, setImagesKey] = useState(0);
   const [lastSide, setLastSide] = useState<SideTab>("preview");
   // 別のファイルを開いた後に移動する位置（1 始まり）
@@ -310,7 +313,7 @@ export function EditorScreen({ route }: { route: EditRoute }) {
             s.edited(doc);
             memory.current?.changed(() => doc.toString());
           }}
-          readOnly={sheet !== null}
+          readOnly={locked}
           diagnostics={lineDiags}
           onCursor={(line, character) => {
             cursor.current = { line, character };
@@ -324,7 +327,7 @@ export function EditorScreen({ route }: { route: EditRoute }) {
         onUndo={() => editor.current?.undo()}
         onInsert={(ch) => editor.current?.insert(ch)}
         saveDisabled={snap.state === "clean" || snap.state === "saving"}
-        disabled={sheet !== null}
+        disabled={locked}
       />
     </section>
   );
@@ -435,7 +438,11 @@ export function EditorScreen({ route }: { route: EditRoute }) {
         onClose={(applied) => {
           setSheet(null);
           setImagesKey((k) => k + 1);
-          if (applied && applied.call.path === routeRef.current.file) void session.current?.external(applied.rev);
+          const s = session.current;
+          if (applied && s && applied.call.path === routeRef.current.file) {
+            setReloadingAfterApply(true);
+            void s.external(applied.rev).finally(() => setReloadingAfterApply(false));
+          }
         }}
         onGoto={(c) => {
           setSheet(null);

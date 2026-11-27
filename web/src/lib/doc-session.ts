@@ -53,6 +53,7 @@ export class DocSession {
   private externalWhileSaving?: string;
   private ownRevs: string[] = [];
   private disposed = false;
+  private saveGen = 0;
 
   constructor(
     private readonly io: DocIO,
@@ -108,8 +109,9 @@ export class DocSession {
       this.set({ state: "dirty" });
       this.autosave.schedule();
     } else {
+      // ディスクと同じ内容に戻った（元に戻すなど）。保存の失敗も残っていない
       this.autosave.cancel();
-      if (this.snap.state !== "error") this.set({ state: "clean" });
+      this.set({ state: "clean", error: undefined });
     }
   }
 
@@ -122,11 +124,18 @@ export class DocSession {
       await this.saving;
       return this.safe;
     }
-    if (!this.loaded || this.snap.state === "conflict" || !this.dirty) return this.safe;
-    this.saving = this.doSave(opts).finally(() => {
-      this.saving = undefined;
+    if (!this.loaded || this.snap.state === "conflict") return this.safe;
+    if (!this.dirty) {
+      if (this.snap.state === "error") this.set({ state: "clean", error: undefined });
+      return this.safe;
+    }
+    // 先の保存の後始末が、次の保存の saving を消さないように世代で見分ける
+    const gen = ++this.saveGen;
+    const p = this.doSave(opts).finally(() => {
+      if (this.saveGen === gen) this.saving = undefined;
     });
-    await this.saving;
+    this.saving = p;
+    await p;
     return this.safe;
   }
 

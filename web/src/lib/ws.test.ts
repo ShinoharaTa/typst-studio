@@ -98,6 +98,21 @@ describe("StudioSocket", () => {
     expect(t.sockets).toHaveLength(3); // 待っていた分は取り消した
   });
 
+  it("wake stops the old connection's ping timer", async () => {
+    const t = setup();
+    const old = t.last();
+    old.open();
+    // 黙って死んだ接続（onclose が来ない）
+    old.readyState = 3;
+    t.s.wake();
+    t.last().open();
+    // 新しい接続の ping の interval だけが残る
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(PING_INTERVAL_MS);
+    expect(old.sent).toEqual([]);
+    expect(t.last().sent).toEqual(["ping"]);
+  });
+
   it("wake on an open connection checks it with a ping", () => {
     const t = setup();
     t.last().open();

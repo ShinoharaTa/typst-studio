@@ -90,10 +90,10 @@ export const api = {
   articles: (name: string) => request<{ path: string }[]>("GET", `${proj(name)}/articles`),
 
   readFile: (name: string, path: string) => request<FileContent>("GET", `${proj(name)}/file?path=${enc(path)}`),
-  // keepalive: ページを閉じても送り切る（ブラウザの上限 64KB 未満のときだけ付ける）
+  // keepalive: ページを閉じても送り切る（ブラウザの上限 64KB に対し、UTF-8 で 60,000 バイト未満のときだけ付ける）
   writeFile: (name: string, path: string, content: string, baseRev: string | null, opts: { keepalive?: boolean } = {}) => {
     const body = { path, content, baseRev };
-    const keepalive = opts.keepalive === true && JSON.stringify(body).length < 60_000;
+    const keepalive = opts.keepalive === true && new TextEncoder().encode(JSON.stringify(body)).length < 60_000;
     return request<{ rev: string }>("PUT", `${proj(name)}/file`, body, keepalive ? { keepalive } : {});
   },
 

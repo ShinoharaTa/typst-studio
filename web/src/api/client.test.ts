@@ -59,14 +59,17 @@ describe("api client", () => {
     expect(await api.writeFile("sample-book", "main.typ", "mine", "old").catch((x) => x)).toMatchObject({ rev: "big", content: null });
   });
 
-  it("adds keepalive only for small bodies", async () => {
+  it("adds keepalive only when the body is under 60,000 bytes in UTF-8", async () => {
     reply = () => json(200, { rev: "r" });
     const seen: RequestInit[] = [];
     vi.stubGlobal("fetch", async (_u: string, init: RequestInit) => (seen.push(init), reply()));
     await api.writeFile("sample-book", "a.typ", "x", "r0", { keepalive: true });
-    await api.writeFile("sample-book", "a.typ", "x".repeat(70_000), "r0", { keepalive: true });
+    // 5 万字の ASCII は 6 万バイト未満
+    await api.writeFile("sample-book", "a.typ", "x".repeat(50_000), "r0", { keepalive: true });
+    // 日本語 4 万字は 4 万文字だが UTF-8 で 12 万バイト
+    await api.writeFile("sample-book", "a.typ", "あ".repeat(40_000), "r0", { keepalive: true });
     await api.writeFile("sample-book", "a.typ", "x", "r0");
-    expect(seen.map((i) => i.keepalive)).toEqual([true, undefined, undefined]);
+    expect(seen.map((i) => i.keepalive)).toEqual([true, true, undefined, undefined]);
   });
 
   it("keeps other 409s (e.g. preview not running) as plain ApiError", async () => {

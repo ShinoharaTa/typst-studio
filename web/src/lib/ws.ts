@@ -67,8 +67,8 @@ export class StudioSocket {
       return;
     }
     if (this.ws && this.ws.readyState === 0) return;
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = undefined;
+    // 前の接続の ping・再接続の待ちは止める
+    this.clearTimers();
     this.retry = 0;
     this.connect();
   }
