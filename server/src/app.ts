@@ -34,8 +34,8 @@ const STATUS_TEXT = { 400: "Bad Request", 401: "Unauthorized", 403: "Forbidden" 
 
 // 画面（web/ を Vite でビルドしたもの）。server/dist/app.js からも server/src/app.ts からも同じ場所
 export const DEFAULT_WEB_DIST = fileURLToPath(new URL("../../web/dist", import.meta.url));
-// 画面の SPA フォールバックを返さないパス
-const NON_SPA_PREFIXES = ["/api", "/preview", "/healthz"];
+// 画面の SPA フォールバックを返さないパス（/assets は名前にハッシュの付いたファイルだけなので、無ければ 404）
+const NON_SPA_PREFIXES = ["/api", "/preview", "/healthz", "/assets"];
 
 function isSpaPath(pathname: string): boolean {
   return !NON_SPA_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
@@ -328,7 +328,7 @@ export function buildApp(host: HostConfig, driver: ProcessLimitDriver, opts: Bui
     return reply.send(res);
   });
 
-  // 画面の配信（/ と /assets/*）。/api /preview /healthz 以外の GET は index.html を返す（SPA）
+  // 画面の配信（/ と /assets/*）。/api /preview /healthz /assets 以外の GET は index.html を返す（SPA）
   const webDist = opts.webDist === undefined ? DEFAULT_WEB_DIST : opts.webDist;
   const hasWeb = webDist !== null && fs.existsSync(path.join(webDist, "index.html"));
   if (hasWeb) {
@@ -336,6 +336,8 @@ export function buildApp(host: HostConfig, driver: ProcessLimitDriver, opts: Bui
       root: webDist,
       prefix: "/",
       index: "index.html",
+      // web のビルドが作った .br / .gz を Accept-Encoding に合わせて返す
+      preCompressed: true,
       // 名前にハッシュの付いた assets/ は変わらないので長く持たせる。index.html は毎回確かめさせる
       cacheControl: false,
       setHeaders: (reply, file) => {

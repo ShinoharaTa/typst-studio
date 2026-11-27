@@ -1,0 +1,197 @@
+// @vitest-environment jsdom
+import { EditorView } from "@codemirror/view";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { App } from "../App";
+
+// 編集画面を出る・切り替えるときの保存（アンマウントを含む回帰テスト）
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+interface Put {
+  path: string;
+  content: string;
+  baseRev: string | null;
+}
+
+let files: Record<string, { content: string; rev: string }>;
+let puts: Put[];
+let putReply: ((p: Put) => Response) | null;
+let root: Root | null;
+let host: HTMLDivElement;
+
+const json = (status: number, body: unknown) =>
+  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+const STOPPED = { state: "stopped", project: null, article: null, startedAt: null, viewers: 0, lastError: null, compile: null };
+
+async function fakeFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  const url = new URL(input, "http://studio.test");
+  const method = init.method ?? "GET";
+  if (url.pathname === "/api/projects") return json(200, []);
+  if (url.pathname === "/api/preview/status" || url.pathname === "/api/preview/start") return json(200, STOPPED);
+  if (url.pathname.endsWith("/profiles")) return json(200, { profiles: [], default: null });
+  if (url.pathname.endsWith("/articles")) return json(200, [{ path: "a.typ" }, { path: "b.typ" }]);
+  if (url.pathname.endsWith("/images")) return json(200, { rev: "x", calls: [] });
+  if (url.pathname.endsWith("/file") && method === "GET") {
+    const f = files[url.searchParams.get("path")!];
+    return f ? json(200, { path: url.searchParams.get("path"), ...f }) : json(404, { error: "not found" });
+  }
+  if (url.pathname.endsWith("/file") && method === "PUT") {
+    const p = JSON.parse(String(init.body)) as Put;
+    puts.push(p);
+    if (putReply) return putReply(p);
+    const rev = `r${puts.length}`;
+    files[p.path] = { content: p.content, rev };
+    return json(200, { rev });
+  }
+  if (url.pathname.startsWith("/api/preview/")) return new Response(null, { status: 204 });
+  return json(404, { error: "unexpected" });
+}
+
+class FakeWebSocket {
+  readyState = 0;
+  onopen = null;
+  onmessage = null;
+  onclose = null;
+  send() {}
+  close() {}
+}
+
+const tick = () => act(async () => void (await new Promise((r) => setTimeout(r, 0))));
+
+async function until(cond: () => boolean, what: string) {
+  for (let i = 0; i < 200; i++) {
+    if (cond()) return;
+    await tick();
+  }
+  throw new Error(`timed out: ${what}`);
+}
+
+async function go(hash: string) {
+  await act(async () => {
+    window.location.hash = hash;
+  });
+  // hashchange は非同期に届く
+  for (let i = 0; i < 5; i++) await tick();
+}
+
+const view = () => EditorView.findFromDOM(host.querySelector(".cm-editor") as HTMLElement)!;
+const docText = () => view().state.doc.toString();
+
+function type(text: string) {
+  act(() => {
+    const v = view();
+    v.dispatch({ changes: { from: 0, insert: text } });
+  });
+}
+
+async function openEditor(path = "a.typ") {
+  await go(`#/p/sample-book/edit/${path}`);
+  if (!root) {
+    root = createRoot(host);
+    await act(async () => root!.render(<App />));
+  }
+  await until(() => !!host.querySelector(".cm-editor") && docText() === files[path].content, "file loaded");
+}
+
+beforeEach(() => {
+  files = { "a.typ": { content: "= A\n", rev: "ra" }, "b.typ": { content: "= B\n", rev: "rb" } };
+  puts = [];
+  putReply = null;
+  vi.stubGlobal("fetch", vi.fn(fakeFetch));
+  vi.stubGlobal("WebSocket", FakeWebSocket);
+  vi.stubGlobal("matchMedia", (q: string) => ({
+    matches: false,
+    media: q,
+    addEventListener() {},
+    removeEventListener() {},
+  }));
+  // CodeMirror の計測を jsdom で通す
+  Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+  Range.prototype.getBoundingClientRect = () => new DOMRect();
+  host = document.createElement("div");
+  document.body.append(host);
+  root = null;
+});
+
+afterEach(async () => {
+  if (root) await act(async () => root!.unmount());
+  host.remove();
+  vi.unstubAllGlobals();
+  window.location.hash = "";
+});
+
+describe("leaving the editor", () => {
+  it("does not overwrite the file when leaving without edits", async () => {
+    await openEditor();
+    await go("#/p/sample-book");
+    await until(() => !host.querySelector(".cm-editor"), "editor closed");
+    await tick();
+    expect(puts).toEqual([]);
+    expect(files["a.typ"].content).toBe("= A\n");
+  });
+
+  it("does not overwrite the file when the whole app unmounts", async () => {
+    await openEditor();
+    await act(async () => root!.unmount());
+    root = null;
+    await tick();
+    expect(puts).toEqual([]);
+  });
+
+  it("saves the edited content (never an empty string) before leaving", async () => {
+    await openEditor();
+    type("X");
+    await go("#/p/sample-book");
+    await until(() => !host.querySelector(".cm-editor"), "editor closed");
+    expect(puts).toEqual([{ path: "a.typ", content: "X= A\n", baseRev: "ra" }]);
+  });
+
+  it("saves the old file with its own content when switching to another article", async () => {
+    await openEditor("a.typ");
+    type("X");
+    await go("#/p/sample-book/edit/b.typ");
+    await until(() => !!host.querySelector(".cm-editor") && docText() === "= B\n", "b opened");
+    expect(puts).toEqual([{ path: "a.typ", content: "X= A\n", baseRev: "ra" }]);
+    expect(files["b.typ"].content).toBe("= B\n");
+  });
+
+  it("stays on the editor and keeps the edits when the save conflicts", async () => {
+    await openEditor();
+    type("X");
+    putReply = () => json(409, { error: "changed on disk", rev: "rDisk", content: "= other\n" });
+    await go("#/p/sample-book");
+    await until(() => document.body.textContent?.includes("ディスク側が変わった") ?? false, "conflict dialog");
+    expect(host.querySelector(".cm-editor")).not.toBeNull();
+    expect(docText()).toBe("X= A\n");
+    expect(window.location.hash).toBe("#/p/sample-book/edit/a.typ");
+  });
+
+  it("stays on the editor when the save fails on the network", async () => {
+    await openEditor();
+    type("X");
+    putReply = () => {
+      throw new TypeError("Failed to fetch");
+    };
+    await go("#/p/sample-book");
+    await tick();
+    expect(host.querySelector(".cm-editor")).not.toBeNull();
+    expect(docText()).toBe("X= A\n");
+    expect(window.location.hash).toBe("#/p/sample-book/edit/a.typ");
+    // 回線が戻れば移動できる
+    putReply = null;
+    await go("#/p/sample-book");
+    await until(() => !host.querySelector(".cm-editor"), "editor closed");
+    expect(puts.at(-1)).toEqual({ path: "a.typ", content: "X= A\n", baseRev: "ra" });
+  });
+
+  it("switching tabs does not save or block", async () => {
+    await openEditor();
+    type("X");
+    await go("#/p/sample-book/edit/a.typ?tab=preview");
+    expect(puts).toEqual([]);
+    expect(host.querySelector(".cm-editor")).not.toBeNull();
+  });
+});

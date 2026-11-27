@@ -60,13 +60,3 @@ export function useKeyboardInset(): void {
     };
   }, []);
 }
-
-export function useHash(): string {
-  return useSyncExternalStore(
-    (cb) => {
-      window.addEventListener("hashchange", cb);
-      return () => window.removeEventListener("hashchange", cb);
-    },
-    () => window.location.hash,
-  );
-}

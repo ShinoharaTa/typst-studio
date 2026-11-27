@@ -21,12 +21,13 @@ export class ApiError extends Error {
   }
 }
 
-// 保存時にディスク側の rev が変わっていた（409）
+// 保存時にディスク側の rev が変わっていた（409）。
+// rev が null ならファイルが無くなった、content が null ならディスクの内容を読めない（2MB 超・UTF-8 でない）
 export class ConflictError extends ApiError {
   constructor(
     message: string,
-    readonly rev: string,
-    readonly content: string,
+    readonly rev: string | null,
+    readonly content: string | null,
     body: Record<string, unknown>,
   ) {
     super(409, message, body);
@@ -70,7 +71,8 @@ async function request<T>(method: string, url: string, body?: unknown, init: Req
   if (!res.ok) {
     const b = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
     const msg = typeof b.error === "string" ? b.error : `${res.status} ${res.statusText}`.trim();
-    if (res.status === 409 && typeof b.rev === "string" && typeof b.content === "string") {
+    const strOrNull = (v: unknown): v is string | null => v === null || typeof v === "string";
+    if (res.status === 409 && "rev" in b && strOrNull(b.rev) && strOrNull(b.content)) {
       throw new ConflictError(msg, b.rev, b.content, b);
     }
     if (res.status === 503 && b.reason === "nomem") {
@@ -87,8 +89,12 @@ export const api = {
   articles: (name: string) => request<{ path: string }[]>("GET", `${proj(name)}/articles`),
 
   readFile: (name: string, path: string) => request<FileContent>("GET", `${proj(name)}/file?path=${enc(path)}`),
-  writeFile: (name: string, path: string, content: string, baseRev: string | null) =>
-    request<{ rev: string }>("PUT", `${proj(name)}/file`, { path, content, baseRev }),
+  // keepalive: ページを閉じても送り切る（ブラウザの上限 64KB 未満のときだけ付ける）
+  writeFile: (name: string, path: string, content: string, baseRev: string | null, opts: { keepalive?: boolean } = {}) => {
+    const body = { path, content, baseRev };
+    const keepalive = opts.keepalive === true && JSON.stringify(body).length < 60_000;
+    return request<{ rev: string }>("PUT", `${proj(name)}/file`, body, keepalive ? { keepalive } : {});
+  },
 
   previewStart: (project: string, article: string) =>
     request<PreviewStatus>("POST", "/api/preview/start", { project, article }),

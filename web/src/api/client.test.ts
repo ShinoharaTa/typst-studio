@@ -50,6 +50,25 @@ describe("api client", () => {
     expect(e).toMatchObject({ status: 409, rev: "disk", content: "on disk", message: "rev mismatch" });
   });
 
+  it("turns 409 for a removed or unreadable file into ConflictError with nulls", async () => {
+    reply = () => json(409, { error: "no longer exists", rev: null, content: null });
+    const gone = await api.writeFile("sample-book", "main.typ", "mine", "old").catch((x) => x);
+    expect(gone).toBeInstanceOf(ConflictError);
+    expect(gone).toMatchObject({ rev: null, content: null });
+    reply = () => json(409, { error: "changed", rev: "big", content: null });
+    expect(await api.writeFile("sample-book", "main.typ", "mine", "old").catch((x) => x)).toMatchObject({ rev: "big", content: null });
+  });
+
+  it("adds keepalive only for small bodies", async () => {
+    reply = () => json(200, { rev: "r" });
+    const seen: RequestInit[] = [];
+    vi.stubGlobal("fetch", async (_u: string, init: RequestInit) => (seen.push(init), reply()));
+    await api.writeFile("sample-book", "a.typ", "x", "r0", { keepalive: true });
+    await api.writeFile("sample-book", "a.typ", "x".repeat(70_000), "r0", { keepalive: true });
+    await api.writeFile("sample-book", "a.typ", "x", "r0");
+    expect(seen.map((i) => i.keepalive)).toEqual([true, undefined, undefined]);
+  });
+
   it("keeps other 409s (e.g. preview not running) as plain ApiError", async () => {
     reply = () => json(409, { error: "preview is not running" });
     const e = await api.previewMemory("sample-book", "main.typ", "x").catch((x) => x);

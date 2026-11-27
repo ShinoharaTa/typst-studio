@@ -12,6 +12,8 @@ export function BookPane(props: {
   // 「本」タブが見えている（自動ビルドはこの間だけ）
   active: boolean;
   onGoto(file: string, line: number, column: number): void;
+  // 最後のビルドの診断（エディタの行表示に使う）
+  onDiagnostics(d: Diagnostic[]): void;
 }) {
   const { project } = props;
   const [profiles, setProfiles] = useState<string[]>([]);
@@ -21,6 +23,7 @@ export function BookPane(props: {
   const [error, setError] = useState<string | null>(null);
   const profileRef = useRef(profile);
   profileRef.current = profile;
+  const [autoOn, setAutoOn] = useState(() => readAutoBuild());
 
   useEffect(() => {
     api.profiles(project).then(
@@ -59,7 +62,7 @@ export function BookPane(props: {
 
   const auto = useMemo(() => new AutoBuild(() => void build()), [build]);
   useEffect(() => () => auto.dispose(), [auto]);
-  useEffect(() => auto.setActive(props.active), [auto, props.active]);
+  useEffect(() => auto.setActive(props.active && autoOn), [auto, props.active, autoOn]);
 
   useStudioEvent((e) => {
     if (e.type === "build-status" && e.project === project && e.profile === profileRef.current) {
@@ -72,7 +75,9 @@ export function BookPane(props: {
 
   const last = status?.last;
   const success = status?.lastSuccess;
-  const diags = last?.diagnostics ?? [];
+  const diags = useMemo(() => last?.diagnostics ?? [], [last]);
+  const onDiagnostics = props.onDiagnostics;
+  useEffect(() => onDiagnostics(diags), [diags, onDiagnostics]);
 
   return (
     <div className="book-pane">
@@ -98,6 +103,17 @@ export function BookPane(props: {
             ダウンロード
           </a>
         )}
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={autoOn}
+            onChange={(e) => {
+              setAutoOn(e.target.checked);
+              writeAutoBuild(e.target.checked);
+            }}
+          />
+          自動ビルド
+        </label>
       </div>
 
       <div className="book-status">
@@ -136,9 +152,26 @@ export function BookPane(props: {
         </details>
       )}
 
-      <PdfViewer url={success?.pdfUrl ?? null} />
+      <PdfViewer url={success?.pdfUrl ?? null} active={props.active} />
     </div>
   );
+}
+
+// 自動ビルドのオン・オフ（端末ごと。読めなければオン）
+const AUTO_KEY = "typst-studio.autoBuild";
+function readAutoBuild(): boolean {
+  try {
+    return window.localStorage.getItem(AUTO_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+function writeAutoBuild(on: boolean): void {
+  try {
+    window.localStorage.setItem(AUTO_KEY, on ? "on" : "off");
+  } catch {
+    // 保存できなくても今の画面では効く
+  }
 }
 
 function mb(bytes: number): string {

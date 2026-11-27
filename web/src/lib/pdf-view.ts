@@ -4,8 +4,9 @@ import {
   type PDFDocumentLoadingTask,
   type PDFDocumentProxy,
   type RenderTask,
-} from "pdfjs-dist";
-import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+} from "pdfjs-dist/legacy/build/pdf.mjs";
+// 古い iOS Safari でも動くように legacy ビルドを使う
+import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 import {
   capturePosition,
   layoutPages,
@@ -25,6 +26,8 @@ GlobalWorkerOptions.workerSrc = workerUrl;
 const MAX_CANVAS_PIXELS = 12_000_000;
 // 表示中のページからこれより離れたページのキャンバスは捨てる
 const KEEP_RADIUS = 3;
+// 保持するキャンバスの合計ピクセルの上限
+const MAX_TOTAL_PIXELS = 40_000_000;
 
 interface Slot {
   el: HTMLDivElement;
@@ -94,7 +97,7 @@ export class PdfView {
       const view = this.scroller.clientHeight || 600;
       await Promise.all(pagesToPrerender(next.layout, top, view).map((i) => this.renderSlot(next, i)));
       if (seq !== this.loadSeq) {
-        next.slots.forEach((s) => s.task?.cancel());
+        next.slots.forEach((s) => this.discardSlot(s));
         return void task.destroy();
       }
       const old = this.cur;
@@ -102,7 +105,7 @@ export class PdfView {
       this.scroller.replaceChildren(next.inner);
       this.scroller.scrollTop = top;
       if (old) {
-        old.slots.forEach((s) => s.task?.cancel());
+        old.slots.forEach((s) => this.discardSlot(s));
         void old.task.destroy();
       }
       this.update();
@@ -125,7 +128,7 @@ export class PdfView {
     this.ro.disconnect();
     this.scroller.removeEventListener("scroll", this.onScroll);
     if (this.cur) {
-      this.cur.slots.forEach((s) => s.task?.cancel());
+      this.cur.slots.forEach((s) => this.discardSlot(s));
       void this.cur.task.destroy();
       this.cur = undefined;
     }
@@ -180,6 +183,21 @@ export class PdfView {
     this.raf = requestAnimationFrame(() => this.update());
   };
 
+  // 保持しているページの範囲（0 始まり、両端を含む）。差し替え前の裏描きでは使わない
+  private keep = { from: 0, to: -1 };
+
+  private inKeep(l: Loaded, i: number): boolean {
+    return l !== this.cur || (i >= this.keep.from && i <= this.keep.to);
+  }
+
+  private discardSlot(s: Slot): void {
+    s.task?.cancel();
+    s.task = undefined;
+    if (s.canvas) freeCanvas(s.canvas);
+    s.canvas = undefined;
+    s.renderedWidth = undefined;
+  }
+
   // 見えているページを描き、遠いページを捨てる
   private update(): void {
     const l = this.cur;
@@ -188,19 +206,28 @@ export class PdfView {
     const view = this.scroller.clientHeight || 600;
     const first = pageAt(l.layout, top);
     const last = pageAt(l.layout, top + view - 1);
+    this.keep = { from: first - KEEP_RADIUS, to: last + KEEP_RADIUS };
     for (let i = Math.max(0, first - 1); i <= Math.min(l.slots.length - 1, last + 1); i++) void this.renderSlot(l, i);
+    // 範囲外のページは、描いている途中のものも含めて捨てる
     l.slots.forEach((s, i) => {
-      if (s.canvas && (i < first - KEEP_RADIUS || i > last + KEEP_RADIUS)) {
-        s.task?.cancel();
-        s.task = undefined;
-        s.canvas.width = 0;
-        s.canvas.height = 0;
-        s.canvas.remove();
-        s.canvas = undefined;
-        s.renderedWidth = undefined;
-      }
+      if ((s.canvas || s.task) && !this.inKeep(l, i)) this.discardSlot(s);
     });
     this.ev.onPage(capturePosition(l.layout, top, this.zoom).page, l.slots.length);
+  }
+
+  // 保持するキャンバスの合計ピクセルを抑える。表示中から遠いものから捨てる
+  private enforceBudget(l: Loaded, center: number): void {
+    const held = l.slots
+      .map((s, i) => ({ s, i, px: s.canvas ? s.canvas.width * s.canvas.height : 0 }))
+      .filter((x) => x.px > 0);
+    let total = held.reduce((a, x) => a + x.px, 0);
+    held.sort((a, b) => Math.abs(b.i - center) - Math.abs(a.i - center));
+    for (const x of held) {
+      if (total <= MAX_TOTAL_PIXELS) break;
+      if (x.i === center) continue;
+      this.discardSlot(x.s);
+      total -= x.px;
+    }
   }
 
   private async renderSlot(l: Loaded, i: number): Promise<void> {
@@ -209,29 +236,52 @@ export class PdfView {
     s.task?.cancel();
     const width = l.width;
     s.renderedWidth = width;
+    let canvas: HTMLCanvasElement | undefined;
     try {
       const page = await l.doc.getPage(i + 1);
+      if (!this.inKeep(l, i) || s.renderedWidth !== width) {
+        if (s.renderedWidth === width) s.renderedWidth = undefined;
+        return;
+      }
       const vp1 = page.getViewport({ scale: 1 });
       const cssScale = width / vp1.width;
       let dpr = window.devicePixelRatio || 1;
       const px = vp1.width * vp1.height * (cssScale * dpr) ** 2;
       if (px > MAX_CANVAS_PIXELS) dpr *= Math.sqrt(MAX_CANVAS_PIXELS / px);
       const vp = page.getViewport({ scale: cssScale * dpr });
-      const canvas = document.createElement("canvas");
+      canvas = document.createElement("canvas");
       canvas.width = Math.floor(vp.width);
       canvas.height = Math.floor(vp.height);
       const task = page.render({ canvas, viewport: vp });
       s.task = task;
       await task.promise;
-      if (s.task !== task) return;
+      if (s.task !== task) {
+        freeCanvas(canvas);
+        return;
+      }
       s.task = undefined;
+      // 描いている間に範囲外へ出た
+      if (!this.inKeep(l, i)) {
+        freeCanvas(canvas);
+        s.renderedWidth = undefined;
+        return;
+      }
       // 描き終えてから入れ替える（白く抜けない）
-      s.canvas?.remove();
+      if (s.canvas) freeCanvas(s.canvas);
       s.canvas = canvas;
       s.el.append(canvas);
+      if (l === this.cur) this.enforceBudget(l, i);
     } catch {
       // 取り消し・失敗。次の update で描き直す
+      if (canvas && s.canvas !== canvas) freeCanvas(canvas);
       if (s.renderedWidth === width) s.renderedWidth = undefined;
     }
   }
+}
+
+// キャンバスのメモリはすぐには返らないので、大きさを 0 にしてから外す
+function freeCanvas(c: HTMLCanvasElement): void {
+  c.width = 0;
+  c.height = 0;
+  c.remove();
 }

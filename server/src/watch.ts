@@ -261,8 +261,10 @@ export class Watchers {
     ws.on("close", () => this.dropClient(ws));
     ws.on("error", () => this.dropClient(ws));
     ws.on("pong", () => (st.alive = true));
-    // クライアントからの送信は今は使わない
-    ws.on("message", () => undefined);
+    // クライアントからは "ping" だけ受ける（ブラウザは ping フレームを送れないので、半開きの検出に使う）
+    ws.on("message", (m: unknown) => {
+      if (String(m) === "ping" && ws.readyState === ws.OPEN) ws.send('{"type":"pong"}');
+    });
     if (!this.pinger) {
       this.pinger = setInterval(() => this.pingAll(), this.opts.pingIntervalMs);
       this.pinger.unref();

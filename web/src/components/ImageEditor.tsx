@@ -23,6 +23,8 @@ const SLIDER: Record<"%" | "mm", { min: number; max: number; step: number }> = {
 interface Draft {
   widthOn: boolean;
   value: number;
+  // 数値欄の文字列（空欄・途中の入力を 0 にしない）
+  valueText: string;
   unit: Unit;
   height: string;
   alt: string;
@@ -33,6 +35,7 @@ function draftFrom(c: ImageCall): Draft {
   return {
     widthOn: c.width !== null,
     value: w?.value ?? 100,
+    valueText: String(w?.value ?? 100),
     unit: w?.unit ?? "%",
     height: c.height ?? "",
     alt: c.alt ?? "",
@@ -42,6 +45,7 @@ function draftFrom(c: ImageCall): Draft {
 // 元の呼び出しと違う引数だけを set にする。不正な値があれば null
 function buildSet(c: ImageCall, d: Draft): ImageSet | null {
   const set: ImageSet = {};
+  if (d.widthOn && !(d.valueText.trim() !== "" && Number.isFinite(d.value) && d.value > 0)) return null;
   const width = d.widthOn ? formatLength(d.value, d.unit) : null;
   if (width !== null && !isValidLength(width)) return null;
   const wOrig = parseLength(c.width);
@@ -68,6 +72,7 @@ export function ImageEditor(props: {
   const [draft, setDraft] = useState(() => draftFrom(props.target.call));
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [followError, setFollowError] = useState<string | null>(null);
   const previewed = useRef(false);
 
   // プレビューから開いたときは rev が無いので、一覧を読み直して同じ呼び出しを探す
@@ -108,7 +113,25 @@ export function ImageEditor(props: {
   const follower = useMemo(
     () =>
       new LatestOnly<{ set: ImageSet; rev: string; call: ImageCall }>(async (v) => {
-        const r = await api.previewImage(project, { path: v.call.path, baseRev: v.rev, start: v.call.start, set: v.set });
+        let r: { content: string };
+        try {
+          r = await api.previewImage(project, { path: v.call.path, baseRev: v.rev, start: v.call.start, set: v.set });
+        } catch (e) {
+          if (e instanceof ApiError && e.status === 409) {
+            // ディスク側が変わった。読み直して、次の操作からは新しい rev で追従する
+            setFollowError("ファイルが変わったので読み込み直しました。もう一度動かしてください");
+            const list = await api.images(project, v.call.path).catch(() => null);
+            if (list) {
+              setRev(list.rev);
+              const found = list.calls.find((x) => x.start === v.call.start) ?? list.calls.find((x) => x.line === v.call.line);
+              if (found) setCall(found);
+            }
+          } else {
+            setFollowError(`プレビューに反映できません: ${(e as Error).message}`);
+          }
+          return;
+        }
+        setFollowError(null);
         previewed.current = true;
         await api.previewMemory(project, v.call.path, r.content).catch(() => undefined);
       }),
@@ -203,6 +226,7 @@ export function ImageEditor(props: {
     <div className="img-editor">
       {head}
       {loadError && <p className="notice error">{loadError}</p>}
+      {followError && <p className="notice error">{followError}</p>}
 
       <fieldset className="field">
         <legend className="field-label">幅（width）</legend>
@@ -216,7 +240,7 @@ export function ImageEditor(props: {
               onClick={() => {
                 // 単位を変えるときは、分かる範囲で同じ大きさに換算する
                 const v = u === "mm" && mm !== null ? Math.round(mm) : draft.unit === u ? draft.value : u === "%" ? 100 : 80;
-                update({ widthOn: true, unit: u, value: v });
+                update({ widthOn: true, unit: u, value: v, valueText: String(v) });
               }}
             >
               {u}
@@ -236,7 +260,7 @@ export function ImageEditor(props: {
                 max={SLIDER[sliderUnit].max}
                 step={SLIDER[sliderUnit].step}
                 value={draft.value}
-                onChange={(e) => update({ value: Number(e.target.value) })}
+                onChange={(e) => update({ value: Number(e.target.value), valueText: e.target.value })}
                 aria-label="幅"
               />
             )}
@@ -246,8 +270,8 @@ export function ImageEditor(props: {
                 inputMode="decimal"
                 min={0}
                 step="any"
-                value={draft.value}
-                onChange={(e) => update({ value: Number(e.target.value) })}
+                value={draft.valueText}
+                onChange={(e) => update({ value: Number(e.target.value), valueText: e.target.value })}
                 aria-label="幅の数値"
               />
               <span>{draft.unit}</span>

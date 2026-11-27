@@ -63,3 +63,24 @@ export function navigate(r: Route, replace = false): void {
   if (replace) window.location.replace(hash);
   else window.location.hash = hash;
 }
+
+// 画面を離れる前の確認（編集画面が置く）。false なら移動を取り消す
+export type LeaveGuard = () => Promise<boolean>;
+let leaveGuard: LeaveGuard | null = null;
+
+export function setLeaveGuard(g: LeaveGuard): () => void {
+  leaveGuard = g;
+  return () => {
+    if (leaveGuard === g) leaveGuard = null;
+  };
+}
+
+export function getLeaveGuard(): LeaveGuard | null {
+  return leaveGuard;
+}
+
+// 開いているファイルが変わる（閉じる）移動か。タブの切り替えだけなら確認しない
+export function leavesFile(from: Route, to: Route): boolean {
+  if (from.view !== "edit") return false;
+  return !(to.view === "edit" && to.project === from.project && to.article === from.article && to.file === from.file);
+}

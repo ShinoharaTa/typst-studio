@@ -1,6 +1,7 @@
 import { defaultKeymap, history, historyKeymap, indentWithTab, redo, undo } from "@codemirror/commands";
 import { bracketMatching, indentOnInput } from "@codemirror/language";
-import { EditorSelection, EditorState } from "@codemirror/state";
+import { lintGutter, setDiagnostics, type Diagnostic as CmDiagnostic } from "@codemirror/lint";
+import { Compartment, EditorSelection, EditorState, type Text } from "@codemirror/state";
 import {
   drawSelection,
   EditorView,
@@ -12,6 +13,14 @@ import {
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { codePointsToUtf16 } from "../lib/text";
 import { typstHighlight, typstLanguage } from "../lib/typst-lang";
+
+// 行に出す診断。line / column は 1 始まり、column はコードポイント単位（typst の出力のまま）
+export interface LineDiagnostic {
+  line: number;
+  column: number | null;
+  severity: "error" | "warning";
+  message: string;
+}
 
 export interface CodeEditorHandle {
   getDoc(): string;
@@ -26,20 +35,39 @@ export interface CodeEditorHandle {
 }
 
 interface Props {
-  onDocChange(): void;
-  // 0 始まり
+  // doc は CodeMirror の Text（文字列にするのは必要になったとき）
+  onDocChange(doc: Text): void;
+  // 0 始まり。character は UTF-16
   onCursor(line: number, character: number): void;
   onSave(): void;
+  readOnly?: boolean;
+  diagnostics?: LineDiagnostic[];
 }
 
-function makeState(doc: string, extensions: ReturnType<typeof buildExtensions>): EditorState {
-  return EditorState.create({ doc, extensions });
+function toCm(doc: Text, ds: LineDiagnostic[]): CmDiagnostic[] {
+  const out: CmDiagnostic[] = [];
+  for (const d of ds) {
+    if (d.line < 1 || d.line > doc.lines) continue;
+    const l = doc.line(d.line);
+    let from = Math.min(l.from + codePointsToUtf16(l.text, Math.max(0, (d.column ?? 1) - 1)), l.to);
+    // 列の位置から行末までに下線を引く（行末を指すときは直前の 1 文字）
+    if (from === l.to && from > l.from) from -= 1;
+    out.push({ from, to: l.to, severity: d.severity, message: d.message });
+  }
+  return out;
 }
 
-function buildExtensions(p: { current: Props }) {
-  return [
+export const CodeEditor = forwardRef<CodeEditorHandle, Props>(function CodeEditor(props, ref) {
+  const host = useRef<HTMLDivElement>(null);
+  const view = useRef<EditorView | null>(null);
+  const propsRef = useRef(props);
+  propsRef.current = props;
+  const readOnly = useRef(new Compartment());
+
+  const extensions = () => [
     lineNumbers(),
     highlightActiveLineGutter(),
+    lintGutter(),
     history(),
     drawSelection(),
     indentOnInput(),
@@ -48,40 +76,44 @@ function buildExtensions(p: { current: Props }) {
     EditorView.lineWrapping,
     typstLanguage,
     typstHighlight,
+    readOnly.current.of(roExt(propsRef.current.readOnly ?? false)),
     keymap.of([
-      { key: "Mod-s", preventDefault: true, run: () => (p.current.onSave(), true) },
+      { key: "Mod-s", preventDefault: true, run: () => (propsRef.current.onSave(), true) },
       ...defaultKeymap,
       ...historyKeymap,
       indentWithTab,
     ]),
     EditorView.contentAttributes.of({ autocapitalize: "off", autocorrect: "off", spellcheck: "false" }),
     EditorView.updateListener.of((u) => {
-      if (u.docChanged) p.current.onDocChange();
+      if (u.docChanged) propsRef.current.onDocChange(u.state.doc);
       if (u.selectionSet || u.docChanged) {
         const head = u.state.selection.main.head;
         const line = u.state.doc.lineAt(head);
-        p.current.onCursor(line.number - 1, head - line.from);
+        propsRef.current.onCursor(line.number - 1, head - line.from);
       }
     }),
   ];
-}
 
-export const CodeEditor = forwardRef<CodeEditorHandle, Props>(function CodeEditor(props, ref) {
-  const host = useRef<HTMLDivElement>(null);
-  const view = useRef<EditorView | null>(null);
-  const propsRef = useRef(props);
-  propsRef.current = props;
-  const extensions = useRef<ReturnType<typeof buildExtensions> | null>(null);
+  const applyDiagnostics = (v: EditorView) => {
+    v.dispatch(setDiagnostics(v.state, toCm(v.state.doc, propsRef.current.diagnostics ?? [])));
+  };
 
   useEffect(() => {
-    extensions.current = buildExtensions(propsRef);
-    const v = new EditorView({ state: makeState("", extensions.current), parent: host.current! });
+    const v = new EditorView({ state: EditorState.create({ doc: "", extensions: extensions() }), parent: host.current! });
     view.current = v;
     return () => {
       v.destroy();
       view.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    view.current?.dispatch({ effects: readOnly.current.reconfigure(roExt(props.readOnly ?? false)) });
+  }, [props.readOnly]);
+
+  useEffect(() => {
+    if (view.current) applyDiagnostics(view.current);
+  }, [props.diagnostics]);
 
   useImperativeHandle(
     ref,
@@ -91,7 +123,8 @@ export const CodeEditor = forwardRef<CodeEditorHandle, Props>(function CodeEdito
         const v = view.current;
         if (!v) return;
         if (opts.resetHistory) {
-          v.setState(makeState(content, extensions.current!));
+          v.setState(EditorState.create({ doc: content, extensions: extensions() }));
+          applyDiagnostics(v);
           return;
         }
         if (v.state.doc.toString() === content) return;
@@ -102,6 +135,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, Props>(function CodeEdito
         const doc = v.state.doc;
         const line = doc.line(Math.min(lineNo, doc.lines));
         v.dispatch({ selection: EditorSelection.cursor(Math.min(line.from + col, line.to)) });
+        applyDiagnostics(v);
       },
       goto(line, column = 1, opts = {}) {
         const v = view.current;
@@ -118,15 +152,19 @@ export const CodeEditor = forwardRef<CodeEditorHandle, Props>(function CodeEdito
       },
       insert(text) {
         const v = view.current;
-        if (!v) return;
+        if (!v || v.state.readOnly) return;
         v.dispatch(v.state.replaceSelection(text), { scrollIntoView: true });
       },
-      undo: () => void (view.current && undo(view.current)),
-      redo: () => void (view.current && redo(view.current)),
+      undo: () => void (view.current && !view.current.state.readOnly && undo(view.current)),
+      redo: () => void (view.current && !view.current.state.readOnly && redo(view.current)),
       focus: () => view.current?.focus(),
     }),
     [],
   );
 
-  return <div className="code-editor" ref={host} />;
+  return <div className="code-editor" ref={host} data-readonly={props.readOnly ?? false} />;
 });
+
+function roExt(ro: boolean) {
+  return [EditorState.readOnly.of(ro), EditorView.editable.of(!ro)];
+}

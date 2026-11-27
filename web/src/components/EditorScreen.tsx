@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "../api/client";
-import type { ImageCall, Position, PreviewStatus } from "../api/types";
+import type { Diagnostic, ImageCall, Position, PreviewStatus } from "../api/types";
 import { DocSession, type DocSnapshot } from "../lib/doc-session";
 import { useMedia, usePageVisible, useStudioEvent } from "../lib/hooks";
-import { formatRoute, navigate, type Route, type Tab } from "../lib/route";
+import { MemorySync } from "../lib/memory-sync";
+import { formatRoute, navigate, setLeaveGuard, type Route, type Tab } from "../lib/route";
 import { Debouncer } from "../lib/schedule";
 import { BookPane } from "./BookPane";
-import { CodeEditor, type CodeEditorHandle } from "./CodeEditor";
+import { CodeEditor, type CodeEditorHandle, type LineDiagnostic } from "./CodeEditor";
 import { ConflictDialog } from "./ConflictDialog";
 import { EditToolbar } from "./EditToolbar";
 import { GitBadge } from "./GitBadge";
@@ -20,7 +21,6 @@ import { useProjectGit } from "./useProjectGit";
 type EditRoute = Extract<Route, { view: "edit" }>;
 type SideTab = Exclude<Tab, "edit">;
 
-const MEMORY_MS = 300;
 const SCROLL_MS = 200;
 
 const TAB_LABEL: Record<Tab, string> = { edit: "編集", preview: "プレビュー", book: "本", images: "画像" };
@@ -45,7 +45,9 @@ export function EditorScreen({ route }: { route: EditRoute }) {
   const git = useProjectGit(project);
   const editor = useRef<CodeEditorHandle>(null);
   const session = useRef<DocSession | null>(null);
-  const [snap, setSnap] = useState<DocSnapshot>({ state: "clean", diskChanged: false });
+  const [snap, setSnap] = useState<DocSnapshot>({ state: "clean", diskChanged: false, removed: false });
+  const memory = useRef<MemorySync | null>(null);
+  const [bookDiags, setBookDiags] = useState<Diagnostic[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewStatus | null>(null);
@@ -76,16 +78,6 @@ export function EditorScreen({ route }: { route: EditRoute }) {
     return p?.state === "running" && p.project === project;
   };
 
-  // 入力 300ms 後に未保存の内容をプレビューへ
-  const memory = useMemo(
-    () =>
-      new Debouncer(MEMORY_MS, () => {
-        const s = session.current;
-        if (!s?.loaded || !previewIsMine()) return;
-        api.previewMemory(project, file, editor.current?.getDoc() ?? "").catch(() => undefined);
-      }),
-    [project, file],
-  );
   const cursor = useRef<{ line: number; character: number } | null>(null);
   const scroll = useMemo(
     () =>
@@ -96,26 +88,27 @@ export function EditorScreen({ route }: { route: EditRoute }) {
       }),
     [project, file],
   );
-  useEffect(
-    () => () => {
-      memory.cancel();
-      scroll.cancel();
-    },
-    [memory, scroll],
-  );
+  useEffect(() => () => scroll.cancel(), [scroll]);
 
   // ファイルを開く
   useEffect(() => {
     setLoading(true);
     setLoadError(null);
+    // 入力 300ms 後に未保存の内容をプレビューへ。保存が済んだらディスクの内容に戻す
+    const mem = new MemorySync({
+      set: (content) => api.previewMemory(project, file, content).catch(() => undefined),
+      reset: () => api.previewMemoryReset(project, file).catch(() => undefined),
+      canSend: previewIsMine,
+    });
+    memory.current = mem;
     const s = new DocSession(
       {
         read: () => api.readFile(project, file),
-        write: (content, baseRev) => api.writeFile(project, file, content, baseRev),
+        write: (content, baseRev, opts) => api.writeFile(project, file, content, baseRev, opts),
       },
-      () => editor.current?.getDoc() ?? "",
       setSnap,
       (content) => editor.current?.setDoc(content),
+      { onSaved: (clean) => clean && mem.reset() },
     );
     session.current = s;
     // 前のファイルの内容を残さない（前のセッションは閉じた時点の内容で保存済み）
@@ -138,11 +131,37 @@ export function EditorScreen({ route }: { route: EditRoute }) {
     );
     return () => {
       cancelled = true;
-      void s.flush();
+      // エディタは先に破棄されていることがある。内容はセッションが持っている
+      const saving = s.flush();
       s.dispose();
+      if (s.safe) mem.reset();
+      else {
+        // 保存できていない分は、プレビューに最後の内容を残す（捨てない）
+        mem.flush();
+        void saving.then((ok) => ok && mem.reset());
+      }
       if (session.current === s) session.current = null;
+      if (memory.current === mem) memory.current = null;
     };
   }, [project, file]);
+
+  // 編集画面を離れる・別のファイルを開く前に保存する。保存できなければ移動しない（衝突のダイアログは残る）
+  useEffect(
+    () =>
+      setLeaveGuard(async () => {
+        const s = session.current;
+        if (!s) return true;
+        const ok = await s.flush();
+        if (!ok) {
+          pendingGoto.current = null;
+          const st = s.snapshot;
+          if (st.state === "error") toast.error(`保存できないので移動しません: ${st.error ?? ""}`);
+          else if (st.state !== "conflict") toast.error("未保存の変更があるので移動しません");
+        }
+        return ok;
+      }),
+    [],
+  );
 
   // 記事のプレビューを始める
   const applyStatus = useCallback(
@@ -190,7 +209,7 @@ export function EditorScreen({ route }: { route: EditRoute }) {
   // 裏に回る・閉じるときは待たずに保存する
   useEffect(() => {
     const onHide = () => {
-      if (document.visibilityState === "hidden") void session.current?.flush();
+      if (document.visibilityState === "hidden") void session.current?.flush({ keepalive: true });
     };
     const onUnload = (e: BeforeUnloadEvent) => {
       if (session.current?.dirty) e.preventDefault();
@@ -212,7 +231,7 @@ export function EditorScreen({ route }: { route: EditRoute }) {
         requestAnimationFrame(() => editor.current?.goto(line, column, { codepoints }));
         return;
       }
-      await session.current?.flush();
+      // 保存は移動の確認（setLeaveGuard）で行う。保存できなければ移動しない
       pendingGoto.current = { line, column, codepoints };
       navigate({ ...r, file: path, tab: wide ? r.tab : "edit" });
     },
@@ -221,8 +240,13 @@ export function EditorScreen({ route }: { route: EditRoute }) {
 
   const openSheet = useCallback(
     async (t: ImageTarget) => {
-      // 同じファイルに未保存の編集があれば先に保存する（画像の書き換えはディスクの内容に対して行う）
-      if (t.call.path === routeRef.current.file) await session.current?.flush();
+      // 画像の書き換えはディスクの内容に対して行うので、未保存の編集は先に保存できていなければ開かない。
+      // 開いている間はエディタを読み取り専用にする
+      const ok = (await session.current?.flush()) ?? true;
+      if (!ok) {
+        toast.error("未保存の変更を保存できないので、画像の編集を開けません");
+        return;
+      }
       setSheet(t);
     },
     [],
@@ -233,6 +257,9 @@ export function EditorScreen({ route }: { route: EditRoute }) {
       switch (e.type) {
         case "file-changed":
           if (e.project === project && e.path === file) void session.current?.external(e.rev);
+          break;
+        case "file-removed":
+          if (e.project === project && e.path === file) session.current?.removedOnDisk();
           break;
         case "preview-status": {
           const { type: _t, ...st } = e;
@@ -258,6 +285,14 @@ export function EditorScreen({ route }: { route: EditRoute }) {
   );
 
   const save = () => void session.current?.save();
+  // 本のビルドの診断のうち、開いているファイルのもの
+  const lineDiags = useMemo<LineDiagnostic[]>(
+    () =>
+      bookDiags
+        .filter((d) => d.file === file && d.line !== null)
+        .map((d) => ({ line: d.line!, column: d.column, severity: d.severity, message: d.message })),
+    [bookDiags, file],
+  );
   const conflict = snap.state === "conflict";
   const fileName = file.slice(file.lastIndexOf("/") + 1);
 
@@ -265,13 +300,18 @@ export function EditorScreen({ route }: { route: EditRoute }) {
     <section className="pane pane-edit" data-active={shown("edit")} aria-label="編集">
       {loadError && <p className="notice error">{loadError}</p>}
       {snap.diskChanged && !conflict && <p className="notice small">ディスク側で変更あり（保存時に確認します）</p>}
+      {snap.removed && !conflict && <p className="notice small error">ディスク上で削除されました（保存時に作り直すか確認します）</p>}
       <div className="editor-wrap" data-loading={loading}>
         <CodeEditor
           ref={editor}
-          onDocChange={() => {
-            session.current?.edited();
-            memory.schedule();
+          onDocChange={(doc) => {
+            const s = session.current;
+            if (!s?.loaded) return;
+            s.edited(doc);
+            memory.current?.changed(() => doc.toString());
           }}
+          readOnly={sheet !== null}
+          diagnostics={lineDiags}
           onCursor={(line, character) => {
             cursor.current = { line, character };
             scroll.schedule();
@@ -284,6 +324,7 @@ export function EditorScreen({ route }: { route: EditRoute }) {
         onUndo={() => editor.current?.undo()}
         onInsert={(ch) => editor.current?.insert(ch)}
         saveDisabled={snap.state === "clean" || snap.state === "saving"}
+        disabled={sheet !== null}
       />
     </section>
   );
@@ -302,7 +343,9 @@ export function EditorScreen({ route }: { route: EditRoute }) {
         />
       </section>
       <section className="pane pane-book" data-active={shown("book")} aria-label="本">
-        <BookPane project={project} active={shown("book") && pageVisible} onGoto={(f, l, c) => void gotoSource(f, l, c, true)} />
+        <BookPane project={project} active={shown("book") && pageVisible} onGoto={(f, l, c) => void gotoSource(f, l, c, true)}
+          onDiagnostics={setBookDiags}
+        />
       </section>
       <section className="pane pane-images" data-active={shown("images")} aria-label="画像">
         <ImagesPane
@@ -403,13 +446,16 @@ export function EditorScreen({ route }: { route: EditRoute }) {
       <ConflictDialog
         open={conflict}
         path={file}
+        conflict={snap.conflict ?? null}
         onReload={() => {
           const s = session.current;
-          if (!s) return;
-          editor.current?.setDoc(s.resolveReload());
-          api.previewMemoryReset(project, file).catch(() => undefined);
+          const content = s?.resolveReload();
+          if (content == null) return;
+          editor.current?.setDoc(content);
+          memory.current?.reset();
         }}
         onOverwrite={() => void session.current?.resolveOverwrite()}
+        onDiscard={() => session.current?.discard()}
       />
     </div>
   );

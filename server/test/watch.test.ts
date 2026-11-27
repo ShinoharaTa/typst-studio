@@ -88,6 +88,12 @@ describe("/api/ws notifications", () => {
     fs.rmSync(home, { recursive: true, force: true });
   });
 
+  it('answers a "ping" text message with a pong (for half-open detection in browsers)', async () => {
+    c.clear();
+    c.ws.send("ping");
+    expect(await c.waitFor((m) => m.type === "pong")).toEqual({ type: "pong" });
+  });
+
   it("an external edit sends file-changed and git-changed (uncommitted +1) within 5s", async () => {
     c.clear();
     const t0 = Date.now();

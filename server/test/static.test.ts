@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import zlib from "node:zlib";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp, DEFAULT_WEB_DIST, type App } from "../src/app.js";
 import { parseHostConfig, type HostConfig } from "../src/config.js";
@@ -35,6 +36,11 @@ beforeAll(() => {
   fs.writeFileSync(path.join(web, "index.html"), INDEX);
   fs.writeFileSync(path.join(web, "assets", "index-abc123.js"), "console.log(1);\n");
   fs.writeFileSync(path.join(web, "assets", "pdf.worker.min-def456.mjs"), "self.onmessage = () => {};\n");
+  // web のビルドが作る事前圧縮
+  const big = "console.log('compressed');\n".repeat(100);
+  fs.writeFileSync(path.join(web, "assets", "big-aaa111.js"), big);
+  fs.writeFileSync(path.join(web, "assets", "big-aaa111.js.gz"), zlib.gzipSync(big));
+  fs.writeFileSync(path.join(web, "assets", "big-aaa111.js.br"), zlib.brotliCompressSync(big));
 });
 
 afterAll(async () => {
@@ -81,9 +87,24 @@ describe("web UI", () => {
     expect(head.headers["content-type"]).toMatch(/^text\/html/);
   });
 
-  it("does not fall back under /api, /preview and /healthz, nor for other methods", async () => {
+  it("serves the pre-compressed files by Accept-Encoding", async () => {
     const a = await make("none", web);
-    for (const url of ["/api", "/api/nope", "/api/projects/sample-book/nope", "/preview", "/preview/x.js", "/healthz/x"]) {
+    const br = await a.app.inject({ method: "GET", url: "/assets/big-aaa111.js", headers: { "accept-encoding": "br, gzip" } });
+    expect(br.statusCode).toBe(200);
+    expect(br.headers["content-encoding"]).toBe("br");
+    expect(br.headers["content-type"]).toMatch(/javascript/);
+    expect(br.headers["cache-control"]).toBe("public, max-age=31536000, immutable");
+    expect(zlib.brotliDecompressSync(br.rawPayload).toString()).toContain("compressed");
+    const gz = await a.app.inject({ method: "GET", url: "/assets/big-aaa111.js", headers: { "accept-encoding": "gzip" } });
+    expect(gz.headers["content-encoding"]).toBe("gzip");
+    const plain = await a.app.inject({ method: "GET", url: "/assets/big-aaa111.js", headers: { "accept-encoding": "identity" } });
+    expect(plain.headers["content-encoding"]).toBeUndefined();
+    expect(plain.body).toContain("compressed");
+  });
+
+  it("does not fall back under /api, /preview, /healthz and /assets, nor for other methods", async () => {
+    const a = await make("none", web);
+    for (const url of ["/api", "/api/nope", "/api/projects/sample-book/nope", "/preview", "/preview/x.js", "/healthz/x", "/assets/missing-000.js", "/assets"]) {
       const res = await a.app.inject({ method: "GET", url });
       expect(res.statusCode, url).toBe(404);
       expect(res.headers["content-type"], url).toMatch(/^application\/json/);

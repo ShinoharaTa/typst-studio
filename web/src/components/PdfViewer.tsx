@@ -2,18 +2,27 @@ import { useEffect, useRef, useState } from "react";
 import type { PdfView } from "../lib/pdf-view";
 import { stepZoom } from "../lib/pdfpos";
 
-// pdf.js で本全体の PDF を出す。url が変わったら、位置と拡大率を保ったまま裏で差し替える
-export function PdfViewer({ url }: { url: string | null }) {
+// pdf.js で本全体の PDF を出す。url が変わったら、位置と拡大率を保ったまま裏で差し替える。
+// active になるまで pdf.js も PDF も読まない。隠れている間は差し替えず、出たときに最新へ差し替える
+export function PdfViewer({ url, active }: { url: string | null; active: boolean }) {
   const scroller = useRef<HTMLDivElement>(null);
   const view = useRef<PdfView | null>(null);
   const [page, setPage] = useState({ page: 0, total: 0 });
   const [zoom, setZoom] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
-  // pdf.js は大きいので、本のペインが出来てから読み込む
   const [ready, setReady] = useState(false);
+  // 一度でも表示された
+  const [wanted, setWanted] = useState(active);
+  const shownUrl = useRef<string | null>(null);
+
   useEffect(() => {
+    if (active) setWanted(true);
+  }, [active]);
+
+  // pdf.js は大きいので、初めて表示されたときに読み込む
+  useEffect(() => {
+    if (!wanted) return;
     let v: PdfView | undefined;
     let cancelled = false;
     import("../lib/pdf-view").then(
@@ -33,14 +42,15 @@ export function PdfViewer({ url }: { url: string | null }) {
       v?.destroy();
       view.current = null;
     };
-  }, []);
+  }, [wanted]);
 
   useEffect(() => {
-    if (!url || !ready || !view.current) return;
+    if (!url || !ready || !active || !view.current || shownUrl.current === url) return;
+    shownUrl.current = url;
     setError(null);
     setLoading(true);
     void view.current.load(url).finally(() => setLoading(false));
-  }, [url, ready]);
+  }, [url, ready, active]);
 
   const changeZoom = (z: number) => {
     setZoom(z);
