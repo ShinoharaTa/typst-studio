@@ -172,7 +172,10 @@ export function buildApp(host: HostConfig, driver: ProcessLimitDriver, opts: { w
     { bodyLimit: MAX_FILE_BYTES * 6 + 64 * 1024 },
     async (req, reply) => {
       try {
-        return await writeProjectFile(projectRoot(host, req.params.name), req.body ?? {});
+        const r = await writeProjectFile(projectRoot(host, req.params.name), req.body ?? {});
+        // 監視の通知を待たずに stale のキャッシュを捨てる
+        build.invalidate(req.params.name);
+        return r;
       } catch (e) {
         return sendError(reply, e);
       }
@@ -259,7 +262,9 @@ export function buildApp(host: HostConfig, driver: ProcessLimitDriver, opts: { w
 
   app.patch<{ Params: { name: string }; Body: Record<string, unknown> | undefined }>("/api/projects/:name/images", async (req, reply) => {
     try {
-      return await patchImage(projectRoot(host, req.params.name), req.body ?? {});
+      const r = await patchImage(projectRoot(host, req.params.name), req.body ?? {});
+      if ("rev" in r) build.invalidate(req.params.name);
+      return r;
     } catch (e) {
       return sendError(reply, e);
     }
@@ -298,7 +303,9 @@ export function buildApp(host: HostConfig, driver: ProcessLimitDriver, opts: { w
           const { article } = req.query;
           if (typeof article !== "string" || article === "") throw new FileError(400, '"article" (query) is required');
           checkArticle(project, checkRelPath(article));
-          return reply.code(201).send(await uploadImage(project, article, req.query.name, req.body));
+          const r = await uploadImage(project, article, req.query.name, req.body);
+          build.invalidate(req.params.name);
+          return reply.code(201).send(r);
         } catch (e) {
           return sendError(reply, e);
         }

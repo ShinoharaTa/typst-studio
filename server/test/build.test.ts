@@ -448,16 +448,41 @@ describe("build HTTP API", () => {
     expect((await post({ stopPreview: true })).statusCode).toBe(503);
     expect(stopped).toBe(1);
     d.available = 8 * 1024 ** 3;
-    // 実行中で待ちに積むだけなら止めない
+    // 待ちに積んだ時点では止めず、待ちから始める直前（空きメモリの判定の前）に止める
     expect((await post({})).json()).toMatchObject({ accepted: "started" });
     expect((await post({ stopPreview: true })).json()).toMatchObject({ accepted: "queued" });
-    expect((await post({ stopPreview: true })).json()).toMatchObject({ accepted: "dropped" });
     expect(stopped).toBe(1);
-    const n = d.procs.length;
+    let stoppedAtCheck = -1;
+    const avail = d.availableMemoryBytes.bind(d);
+    d.availableMemoryBytes = async () => {
+      stoppedAtCheck = stopped;
+      return avail();
+    };
+    let n = d.procs.length;
     d.procs.at(-1)!.finish("ok");
     await until(() => d.procs.length === n + 1);
+    expect(stopped).toBe(2);
+    expect(stoppedAtCheck).toBe(2);
+
+    // 同じ待ちにまとめられた依頼の stopPreview は OR で合成する
+    expect((await post({})).json()).toMatchObject({ accepted: "queued" });
+    expect((await post({ stopPreview: true })).json()).toMatchObject({ accepted: "dropped" });
+    expect((await post({})).json()).toMatchObject({ accepted: "dropped" });
+    n = d.procs.length;
+    d.procs.at(-1)!.finish("ok");
+    await until(() => d.procs.length === n + 1);
+    expect(stopped).toBe(3);
+
+    // 別のプロファイルで落とされた依頼の stopPreview は待ちに移さない
+    expect((await post({})).json()).toMatchObject({ accepted: "queued" });
+    expect((await post({ profile: "ebook", stopPreview: true })).json()).toMatchObject({ accepted: "dropped" });
+    n = d.procs.length;
+    d.procs.at(-1)!.finish("ok");
+    await until(() => d.procs.length === n + 1);
+    expect(stopped).toBe(3);
     d.procs.at(-1)!.finish("ok");
     await until(() => a.build["busy"] === false);
+    d.availableMemoryBytes = avail;
   });
 
   it("drops the stale cache on file-changed", async () => {
@@ -469,6 +494,54 @@ describe("build HTTP API", () => {
     a.watchers.broadcast({ type: "file-changed", project: "sample-book", path: "main.typ", rev: "x" });
     const st2 = (await a.app.inject({ method: "GET", url: "/api/projects/sample-book/build?profile=print" })).json() as BuildStatus;
     expect(st2.stale).toBe(true);
+  });
+
+  it("drops the stale cache after studio's own writes (PUT file, PATCH images, upload)", async () => {
+    const root = path.join(home, "projects", "sample-book");
+    const ARTICLE = "articles/author-a/article.typ";
+    const stale = async () => ((await a.app.inject({ method: "GET", url: "/api/projects/sample-book/build?profile=print" })).json() as BuildStatus).stale;
+    const freshBuild = async () => {
+      // mtime（ms）とビルドの開始時刻が同じにならないように
+      await sleep(20);
+      const n = d.procs.length;
+      await a.app.inject({ method: "POST", url: "/api/projects/sample-book/build", payload: {} });
+      await until(() => d.procs.length === n + 1);
+      d.procs.at(-1)!.finish("ok");
+      await until(() => a.build["busy"] === false);
+      // キャッシュに「変更なし」を入れておく
+      expect(await stale()).toBe(false);
+      await sleep(20);
+    };
+    const rev = () => (a.app.inject({ method: "GET", url: `/api/projects/sample-book/file?path=${ARTICLE}` }).then((r) => (r.json() as { rev: string }).rev));
+
+    // 前のテストで未来にした mtime を戻す
+    fs.utimesSync(path.join(root, "main.typ"), new Date(), new Date());
+    a.build.invalidate("sample-book");
+    await freshBuild();
+    const put = await a.app.inject({ method: "PUT", url: "/api/projects/sample-book/file", payload: { path: ARTICLE, content: '#image("a.png")\n', baseRev: await rev() } });
+    expect(put.statusCode).toBe(200);
+    expect(await stale()).toBe(true);
+
+    await freshBuild();
+    const dry = await a.app.inject({ method: "PATCH", url: "/api/projects/sample-book/images", payload: { path: ARTICLE, baseRev: await rev(), start: 1, set: { width: "5%" }, dryRun: true } });
+    expect(dry.statusCode).toBe(200);
+    // dryRun は書かないので、ここではキャッシュのまま
+    fs.utimesSync(path.join(root, "main.typ"), new Date(), new Date());
+    expect(await stale()).toBe(false);
+    const patch = await a.app.inject({ method: "PATCH", url: "/api/projects/sample-book/images", payload: { path: ARTICLE, baseRev: await rev(), start: 1, set: { width: "5%" } } });
+    expect(patch.statusCode).toBe(200);
+    expect(await stale()).toBe(true);
+
+    await freshBuild();
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(8)]);
+    const up = await a.app.inject({
+      method: "POST",
+      url: `/api/projects/sample-book/upload?article=${encodeURIComponent(ARTICLE)}&name=x.png`,
+      headers: { "content-type": "image/png" },
+      payload: png,
+    });
+    expect(up.statusCode).toBe(201);
+    expect(await stale()).toBe(true);
   });
 
   it("stops a running build when the server closes, even with a request still open", async () => {

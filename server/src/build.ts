@@ -136,6 +136,8 @@ export type BuildAccepted = "started" | "queued" | "dropped";
 interface Job {
   project: string;
   profile: string;
+  // 待ちから始めるときに、空きメモリの判定の前に呼ぶ（stopPreview）
+  beforeStart?: () => Promise<void>;
 }
 
 interface Running extends Job {
@@ -196,8 +198,14 @@ export class BuildManager {
     const profile = this.resolveProfile(project, profileIn);
     if (this.closed) throw new BuildError(503, "the server is shutting down");
     if (this.busy) {
-      if (this.queued) return { status: await this.status(project.name, profile), accepted: "dropped" };
-      this.queued = { project: project.name, profile };
+      if (this.queued) {
+        // 同じプロジェクト・プロファイルの待ちにまとめる。beforeStart（stopPreview）は OR で合成する
+        if (this.queued.project === project.name && this.queued.profile === profile && beforeStart && !this.queued.beforeStart) {
+          this.queued.beforeStart = beforeStart;
+        }
+        return { status: await this.status(project.name, profile), accepted: "dropped" };
+      }
+      this.queued = { project: project.name, profile, beforeStart };
       this.emit(project.name, profile);
       return { status: await this.status(project.name, profile), accepted: "queued" };
     }
@@ -270,6 +278,7 @@ export class BuildManager {
     }
     let available: number;
     try {
+      await job.beforeStart?.();
       available = await this.driver.availableMemoryBytes();
     } catch (e) {
       return fail("error", (e as Error).message);
