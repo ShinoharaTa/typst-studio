@@ -63,4 +63,40 @@ describe("EditToolbar", () => {
     await act(async () => root.unmount());
     host.remove();
   });
+  it("shows the save state on Save itself, at a fixed width", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const onSave = vi.fn();
+    const render = (state: "clean" | "dirty" | "saving" | "conflict" | "error") =>
+      act(async () =>
+        root.render(
+          <EditToolbar
+            onSave={onSave}
+            onUndo={() => undefined}
+            onInsert={() => undefined}
+            saveState={state}
+            saveDisabled={state === "clean" || state === "saving"}
+          />,
+        ),
+      );
+    const save = () => host.querySelector<HTMLButtonElement>(".tb-save")!;
+    const seen: [string, string | null, string | null][] = [];
+    for (const st of ["clean", "dirty", "saving", "conflict", "error"] as const) {
+      await render(st);
+      seen.push([save().textContent!, save().dataset.state ?? null, save().getAttribute("aria-disabled")]);
+    }
+    expect(seen).toEqual([
+      ["保存済", "clean", "true"],
+      ["保存", "dirty", "false"],
+      ["保存中", "saving", "true"],
+      ["衝突", "conflict", "false"],
+      ["再試行", "error", "false"],
+    ]);
+    // 失敗したときは押すともう一度保存する
+    await act(async () => save().click());
+    expect(onSave).toHaveBeenCalledTimes(1);
+    await act(async () => root.unmount());
+    host.remove();
+  });
 });

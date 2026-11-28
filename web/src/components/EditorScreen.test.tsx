@@ -107,6 +107,14 @@ beforeEach(() => {
   window.localStorage.clear();
   vi.stubGlobal("fetch", vi.fn(fakeFetch));
   vi.stubGlobal("WebSocket", FakeWebSocket);
+  // 本のタブを開くと PDF のビューアが作られる（jsdom に無い）
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
   vi.stubGlobal("matchMedia", (q: string) => ({
     matches: wideMode && q.includes("min-width: 900px"),
     media: q,
@@ -270,14 +278,14 @@ describe("leaving the editor", () => {
 
   const tabLabels = (nav: Element | null) => [...(nav?.querySelectorAll(".tab") ?? [])].map((b) => b.textContent);
 
-  it("puts the view tabs in a row right under the header in one-pane mode (not at the bottom)", async () => {
+  it("puts the view tabs in the header in one-pane mode (after the title, not at the bottom)", async () => {
     await openEditor();
-    const labels = tabLabels;
-    const row = host.querySelector(".editor-screen > .view-tabs");
-    // ヘッダの直後、ペインより前（下端には置かない）
-    expect(row?.previousElementSibling?.classList.contains("topbar")).toBe(true);
-    expect(labels(row)).toEqual(["編集", "プレビュー", "本", "画像"]);
-    expect(host.querySelector(".topbar .view-tabs")).toBeNull();
+    const navs = host.querySelectorAll(".view-tabs");
+    expect(navs).toHaveLength(1);
+    // ヘッダの中、題の後（ペインより前。下端には置かない）
+    expect(navs[0].parentElement?.classList.contains("topbar")).toBe(true);
+    expect(navs[0].previousElementSibling?.classList.contains("topbar-main")).toBe(true);
+    expect(tabLabels(navs[0])).toEqual(["編集", "プレビュー", "本", "画像"]);
     // 編集の入力補助はエディタと同じペインの中
     expect(host.querySelector(".pane-edit .edit-toolbar")).not.toBeNull();
   });
@@ -285,8 +293,52 @@ describe("leaving the editor", () => {
   it("puts the view tabs in the side column of the header in two-pane mode", async () => {
     wideMode = true;
     await openEditor();
-    expect(host.querySelector(".editor-screen > .view-tabs")).toBeNull();
+    expect(host.querySelectorAll(".view-tabs")).toHaveLength(1);
     expect(tabLabels(host.querySelector(".topbar .view-tabs"))).toEqual(["プレビュー", "本", "画像"]);
+  });
+
+  const tabButton = (label: string) => [...host.querySelectorAll<HTMLButtonElement>(".tab")].find((b) => b.textContent === label)!;
+  const pressed = () => [...host.querySelectorAll(".tab")].filter((b) => b.getAttribute("aria-pressed") === "true").map((b) => b.textContent);
+  const activePanes = () =>
+    [...host.querySelectorAll<HTMLElement>(".pane")].filter((p) => p.dataset.active === "true").map((p) => p.getAttribute("aria-label"));
+
+  it("clicking a tab in one-pane mode shows only that pane, marks the tab and puts the tab in the URL", async () => {
+    await openEditor();
+    expect(activePanes()).toEqual(["編集"]);
+    expect(pressed()).toEqual(["編集"]);
+    for (const [label, tab] of [
+      ["プレビュー", "preview"],
+      ["本", "book"],
+      ["画像", "images"],
+    ] as const) {
+      await act(async () => tabButton(label).click());
+      for (let i = 0; i < 5; i++) await tick();
+      expect(activePanes()).toEqual([label]);
+      expect(pressed()).toEqual([label]);
+      expect(window.location.hash).toBe(`#/p/sample-book/edit/a.typ?tab=${tab}`);
+    }
+    await act(async () => tabButton("編集").click());
+    for (let i = 0; i < 5; i++) await tick();
+    expect(activePanes()).toEqual(["編集"]);
+    expect(pressed()).toEqual(["編集"]);
+    expect(window.location.hash).toBe("#/p/sample-book/edit/a.typ");
+  });
+
+  it("clicking a tab in two-pane mode switches only the side pane (the editor stays shown)", async () => {
+    wideMode = true;
+    await openEditor();
+    expect(activePanes()).toEqual(["編集", "プレビュー"]);
+    expect(pressed()).toEqual(["プレビュー"]);
+    await act(async () => tabButton("本").click());
+    for (let i = 0; i < 5; i++) await tick();
+    expect(activePanes()).toEqual(["編集", "本"]);
+    expect(pressed()).toEqual(["本"]);
+    expect(window.location.hash).toBe("#/p/sample-book/edit/a.typ?tab=book");
+    await act(async () => tabButton("画像").click());
+    for (let i = 0; i < 5; i++) await tick();
+    expect(activePanes()).toEqual(["編集", "画像"]);
+    expect(pressed()).toEqual(["画像"]);
+    expect(window.location.hash).toBe("#/p/sample-book/edit/a.typ?tab=images");
   });
 
   it("offers 'continue' on the project list and marks the last article", async () => {

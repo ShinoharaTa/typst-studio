@@ -1,4 +1,5 @@
-// styles.css のトークンの検査（線を使わない取り決めと、文字のコントラスト）
+// @vitest-environment jsdom
+// styles.css のトークンの検査（線を使わない取り決めと、文字のコントラスト）と、jsdom に当てて算出したスタイルの検査
 // （vitest は CSS の import を空にするので、ファイルを直接読む。型は tsconfig.node-test.json で検査する）
 import fs from "node:fs";
 import path from "node:path";
@@ -49,8 +50,11 @@ describe("styles.css", () => {
     expect(css).toMatch(/\.edit-toolbar\[data-locked="true"\] \.tb-save \{\s*opacity: 0\.5;/);
   });
 
-  it("removes CodeMirror's dotted focus outline", () => {
+  it("removes CodeMirror's dotted focus outline, and shows focus by the current line only while focused", () => {
     expect(css).toMatch(/\.code-editor \.cm-editor\.cm-focused \{\s*outline: none;/);
+    expect(css).toMatch(
+      /\.code-editor \.cm-editor:not\(\.cm-focused\) \.cm-activeLine,\s*\.code-editor \.cm-editor:not\(\.cm-focused\) \.cm-activeLineGutter \{\s*background: transparent;/,
+    );
   });
 
   it("puts the toolbar on the editor's panel with box-colored keys, stretched to the full width", () => {
@@ -61,8 +65,52 @@ describe("styles.css", () => {
     expect(rule(".tb-char")).not.toContain("max-width");
   });
 
-  it("keeps the view tabs visible while the keyboard is shown", () => {
-    expect(css).not.toMatch(/\[data-kb\][^{]*\.view-tabs/);
+  it("sets the tabs apart on a track: the selected pill stands out in light and dark, and the labels stay readable", () => {
+    for (const block of [light, dark]) {
+      expect(contrast(token(block, "tab-on"), token(block, "tab-track"))).toBeGreaterThanOrEqual(1.3);
+      expect(contrast(token(block, "accent"), token(block, "tab-on"))).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(token(block, "muted"), token(block, "tab-track"))).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(token(block, "muted"), token(block, "tab-press"))).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it("reserves the room for the swap button with margins, so the neighbouring header columns never cover it", () => {
+    const rules = [...css.matchAll(/\n(\.editor-screen\[data-wide="true"\][^{]*(?:\.topbar-main|\.topbar \.view-tabs)) \{([^}]*)\}/g)];
+    expect(rules.length).toBeGreaterThan(0);
+    for (const [, sel, body] of rules) expect(body, sel).not.toMatch(/padding/);
+    expect(css).toMatch(/\.swap-btn \{[^}]*z-index: 1;/);
+  });
+
+  it("while the keyboard is shown (one-pane), hides the title but keeps ‹ and the tabs on one row", () => {
+    // EditorScreen のヘッダと同じ骨組み（タブがヘッダの中、題の後にあることは EditorScreen.test.tsx で確かめる）
+    const style = document.createElement("style");
+    style.textContent = css;
+    document.head.append(style);
+    document.body.innerHTML = `
+      <div class="screen editor-screen" data-wide="false">
+        <header class="topbar">
+          <div class="topbar-main"><a class="icon-btn">‹</a><div class="topbar-text"><h1 class="topbar-title">題</h1></div></div>
+          <nav class="view-tabs"><button class="tab">編集</button><button class="tab">プレビュー</button></nav>
+        </header>
+      </div>`;
+    const q = (sel: string) => getComputedStyle(document.querySelector(sel)!);
+    try {
+      expect(q(".topbar-text").display).toBe("flex");
+      expect(q(".topbar").flexWrap).toBe("wrap");
+      document.documentElement.setAttribute("data-kb", "");
+      expect(q(".topbar-text").display).toBe("none");
+      expect(q(".topbar").flexWrap).toBe("nowrap");
+      expect(q(".view-tabs").display).toBe("flex");
+      expect(q(".icon-btn").display).not.toBe("none");
+      for (const t of document.querySelectorAll(".tab")) expect(getComputedStyle(t).display).not.toBe("none");
+      // 2 ペインでは題を隠さない
+      document.querySelector(".editor-screen")!.setAttribute("data-wide", "true");
+      expect(q(".topbar-text").display).toBe("flex");
+    } finally {
+      document.documentElement.removeAttribute("data-kb");
+      document.body.innerHTML = "";
+      style.remove();
+    }
   });
 
   it("does not read the arrow of 'continue' aloud", () => {

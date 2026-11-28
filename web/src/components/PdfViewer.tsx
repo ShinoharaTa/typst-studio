@@ -59,7 +59,8 @@ export function PdfViewer({ url, active, downloadUrl }: { url: string | null; ac
 
   return (
     <div className="pdf-viewer">
-      {/* 操作部はペインの上端にまとめる（プロファイル・ビルドの直下。下端はキーボードの上に出る編集のツールバーだけ） */}
+      {/* 操作部はペインの上端にまとめる（本タブの上の段: プロファイル・ビルド、状態、診断に続けて置く。PDF の台より上）。
+          下端に置くのは、キーボードの上に出る編集のツールバーだけ */}
       <div className="pdf-bar">
         <span className="pdf-pagenum" aria-live="polite">
           {page.total ? `${page.page} / ${page.total}` : "—"}

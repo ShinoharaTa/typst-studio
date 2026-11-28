@@ -28,13 +28,13 @@ type SideTab = Exclude<Tab, "edit">;
 const SCROLL_MS = 200;
 
 const TAB_LABEL: Record<Tab, string> = { edit: "編集", preview: "プレビュー", book: "本", images: "画像" };
-const SAVE_LABEL: Record<DocSnapshot["state"], string> = {
-  clean: "保存済み",
-  dirty: "未保存",
-  saving: "保存中…",
+// 保存の状態はツールバーの「保存」が示す。ヘッダには、手当てが要るときだけ出す
+const SAVE_ALERT: Partial<Record<DocSnapshot["state"], string>> = {
   conflict: "衝突",
   error: "保存できません",
 };
+// エディタの下端のフェード（styles.css の .editor-wrap::after）の高さ。カーソルの行がその下に入らないようにする
+const EDGE_FADE = 12;
 
 interface Jump {
   path: string;
@@ -43,7 +43,7 @@ interface Jump {
 
 export function EditorScreen({ route }: { route: EditRoute }) {
   const { project, article, file, tab } = route;
-  // 幅 900px 以上は 2 ペイン（左: 編集、右: プレビュー / 本 / 画像）。それ未満は 1 ペイン + 下部タブ
+  // 幅 900px 以上は 2 ペイン（左: 編集、右: プレビュー / 本 / 画像）。それ未満は 1 ペイン（タブはヘッダの段）
   const wide = useMedia("(min-width: 900px)");
   // 幅 600px 未満（スマホ）。エディタの左の余白を詰める
   const narrow = useMedia("(max-width: 599.98px)");
@@ -358,7 +358,7 @@ export function EditorScreen({ route }: { route: EditRoute }) {
             scroll.schedule();
           }}
           onCursorDiagnostics={setCursorDiags}
-          bottomInset={bandInset}
+          bottomInset={Math.max(bandInset, EDGE_FADE)}
           onSave={save}
         />
         {cursorDiags.length > 0 && (
@@ -388,6 +388,7 @@ export function EditorScreen({ route }: { route: EditRoute }) {
           editor.current?.insert(ch);
           editor.current?.focus();
         }}
+        saveState={snap.state}
         saveDisabled={snap.state === "clean" || snap.state === "saving"}
         disabled={locked}
       />
@@ -436,7 +437,8 @@ export function EditorScreen({ route }: { route: EditRoute }) {
   return (
     <div className="screen editor-screen" data-wide={wide} data-swap={swapped}>
       <header className="topbar">
-        {/* 2 ペインでは、ヘッダをペインと同じ 2 列に分ける（題は編集側、タブは右ペイン側の真上） */}
+        {/* タブはヘッダの中。1 ペインは題の下の段（キーボード表示中は題を隠して「‹」と同じ段）。
+            2 ペインはヘッダをペインと同じ 2 列に分ける（題は編集側、タブは右ペイン側の真上） */}
         <div className="topbar-main">
           <a className="icon-btn" href={formatRoute({ view: "articles", project })} aria-label="記事一覧へ">
             ‹
@@ -465,7 +467,7 @@ export function EditorScreen({ route }: { route: EditRoute }) {
                 </button>
               )}
               {git && <GitBadge git={git} compact />}
-              <span className={`save-state save-${snap.state}`}>{SAVE_LABEL[snap.state]}</span>
+              {SAVE_ALERT[snap.state] && <span className={`save-state save-${snap.state}`}>{SAVE_ALERT[snap.state]}</span>}
             </div>
           </div>
         </div>
@@ -481,27 +483,14 @@ export function EditorScreen({ route }: { route: EditRoute }) {
             ⇄ 入れ替え
           </button>
         )}
-        {wide && (
-          <nav className="view-tabs" aria-label="表示の切り替え">
-            {(["preview", "book", "images"] as const).map((t) => (
-              <button key={t} type="button" className="tab" aria-pressed={sideTab === t} onClick={() => setTab(t)}>
-                {TAB_LABEL[t]}
-              </button>
-            ))}
-          </nav>
-        )}
-      </header>
-
-      {!wide && (
-        // タブは幅・キーボードの有無によらず上端（切り替える面の真上）に置く
         <nav className="view-tabs" aria-label="表示の切り替え">
-          {(["edit", "preview", "book", "images"] as const).map((t) => (
-            <button key={t} type="button" className="tab" aria-pressed={tab === t} onClick={() => setTab(t)}>
+          {(wide ? (["preview", "book", "images"] as const) : (["edit", "preview", "book", "images"] as const)).map((t) => (
+            <button key={t} type="button" className="tab" aria-pressed={(wide ? sideTab : tab) === t} onClick={() => setTab(t)}>
               {TAB_LABEL[t]}
             </button>
           ))}
         </nav>
-      )}
+      </header>
 
       <div className="panes">
         {editPane}
