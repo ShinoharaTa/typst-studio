@@ -805,8 +805,16 @@ code {
   border-radius: var(--r-pill);
   background: transparent;
   color: var(--muted);
-  font-size: 0.9rem;
+  /* 文字を大きくしても隣のタブに重ならないよう、上限を付けて末尾を省略する */
+  font-size: min(0.9rem, 15px);
   white-space: nowrap;
+}
+
+/* 省略は中の文字で行う（.tab に overflow を付けると、押せる範囲を広げる ::after が切られる） */
+.tab-label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tab::after {
@@ -849,7 +857,7 @@ code {
 }
 
 :root[data-kb] .editor-screen[data-wide="false"] .tab {
-  font-size: 0.85rem;
+  font-size: min(0.85rem, 14px);
 }
 
 .editor-wrap {
@@ -919,14 +927,21 @@ code {
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
-/* フォーカスが無い間は現在行の強調を消す（カーソルも消えるので、強調があれば入力できる状態と分かる） */
-.code-editor .cm-editor:not(.cm-focused) .cm-activeLine,
+/* フォーカスが無い間は現在行の強調を消す（カーソルも消えるので、強調があれば入力できる状態と分かる）。
+   診断のある行は除く（この規則は詳細度が高く、狭い画面の診断の地の色まで消してしまう） */
+.code-editor .cm-editor:not(.cm-focused) .cm-activeLine:not(.cm-diag-line),
 .code-editor .cm-editor:not(.cm-focused) .cm-activeLineGutter {
   background: transparent;
 }
 
 .code-editor .cm-content {
   caret-color: var(--text);
+}
+
+/* 最終行が下端のフェード（.editor-wrap::after の 12px）に掛からないよう、その分だけ下を空ける。
+   CodeMirror の既定（.ͼ1 .cm-content）より詳細度を上げる */
+.code-editor .cm-editor .cm-content {
+  padding-bottom: 12px;
 }
 
 .code-editor .cm-cursor {
@@ -999,30 +1014,36 @@ code {
   opacity: 0.5;
 }
 
-/* 記号キーは残りの幅を分け合う（375px・360px でも右端の " まで収める。広い画面では幅いっぱいに伸ばし、右を空けない）。
+/* 記号キーは残りの幅を分け合う（320px でも右端の " まで収める。広い画面では幅いっぱいに伸ばし、右を空けない）。
    保存と元に戻すは幅を保つ */
 .tb-char {
   flex: 1 1 0;
-  min-width: 34px;
+  min-width: 28px;
   padding: 0;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
-/* 保存の状態を文言と色で示す。文言が変わってもキーの並びがずれないよう幅を固定する */
+/* 保存の状態を文言と色で示す。文言が変わってもキーの並びがずれないよう幅を固定する。
+   文字の拡大で折れて切れないよう px で指定し、折り返さない（エディタの本文・行番号と同じ扱い）。
+   太さは全状態で同じにする（文言が変わるたびに字の形が揺れないように） */
 .tb-save {
   width: 56px;
   padding: 0;
-  font-size: 0.9rem;
+  font-size: 14px;
   font-weight: 600;
-  background: var(--accent);
-  color: var(--accent-text);
+  white-space: nowrap;
+  background: transparent;
+  color: var(--muted);
 }
 
 .tb-save[aria-disabled="true"] {
-  background: transparent;
-  color: var(--muted);
-  font-weight: 400;
   cursor: default;
+}
+
+/* 未保存。自動保存（2 秒）で消えるので、塗りのアクセントで呼びかけず、記号キーと同じ強さの面にする */
+.tb-save[data-state="dirty"] {
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .tb-save[data-state="conflict"],

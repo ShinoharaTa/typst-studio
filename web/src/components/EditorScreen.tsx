@@ -334,6 +334,10 @@ export function EditorScreen({ route }: { route: EditRoute }) {
   // ファイルを切り替えたら初期化する
   useEffect(() => setCursorDiags([]), [file]);
   const conflict = snap.state === "conflict";
+  // 最後の保存が失敗している間は、打って未保存に戻っても失敗の見た目を保つ（error は保存に成功するまで残る）
+  const saveView: DocSnapshot["state"] = snap.state === "dirty" && snap.error !== undefined ? "error" : snap.state;
+  // ヘッダは衝突か、最後の保存の失敗が残っている間だけ出す
+  const saveAlert: DocSnapshot["state"] | undefined = conflict ? "conflict" : snap.error !== undefined ? "error" : undefined;
   const fileName = file.slice(file.lastIndexOf("/") + 1);
 
   const editPane = (
@@ -388,8 +392,9 @@ export function EditorScreen({ route }: { route: EditRoute }) {
           editor.current?.insert(ch);
           editor.current?.focus();
         }}
-        saveState={snap.state}
-        saveDisabled={snap.state === "clean" || snap.state === "saving"}
+        saveState={saveView}
+        // 衝突中は押しても保存しない（ダイアログで選ぶ）
+        saveDisabled={snap.state === "clean" || snap.state === "saving" || conflict}
         disabled={locked}
       />
     </section>
@@ -467,7 +472,7 @@ export function EditorScreen({ route }: { route: EditRoute }) {
                 </button>
               )}
               {git && <GitBadge git={git} compact />}
-              {SAVE_ALERT[snap.state] && <span className={`save-state save-${snap.state}`}>{SAVE_ALERT[snap.state]}</span>}
+              {saveAlert && <span className={`save-state save-${saveAlert}`}>{SAVE_ALERT[saveAlert]}</span>}
             </div>
           </div>
         </div>
@@ -486,7 +491,7 @@ export function EditorScreen({ route }: { route: EditRoute }) {
         <nav className="view-tabs" aria-label="表示の切り替え">
           {(wide ? (["preview", "book", "images"] as const) : (["edit", "preview", "book", "images"] as const)).map((t) => (
             <button key={t} type="button" className="tab" aria-pressed={(wide ? sideTab : tab) === t} onClick={() => setTab(t)}>
-              {TAB_LABEL[t]}
+              <span className="tab-label">{TAB_LABEL[t]}</span>
             </button>
           ))}
         </nav>

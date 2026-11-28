@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
-import { EditToolbar, TOOLBAR_CHARS } from "./EditToolbar";
+import { EditToolbar, SAVING_SHOW_MS, TOOLBAR_CHARS } from "./EditToolbar";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -82,9 +82,16 @@ describe("EditToolbar", () => {
       );
     const save = () => host.querySelector<HTMLButtonElement>(".tb-save")!;
     const seen: [string, string | null, string | null][] = [];
-    for (const st of ["clean", "dirty", "saving", "conflict", "error"] as const) {
-      await render(st);
-      seen.push([save().textContent!, save().dataset.state ?? null, save().getAttribute("aria-disabled")]);
+    vi.useFakeTimers();
+    try {
+      for (const st of ["clean", "dirty", "saving", "conflict", "error"] as const) {
+        await render(st);
+        // 「保存中」は長引いたときだけ出す
+        if (st === "saving") await act(async () => vi.advanceTimersByTime(SAVING_SHOW_MS));
+        seen.push([save().textContent!, save().dataset.state ?? null, save().getAttribute("aria-disabled")]);
+      }
+    } finally {
+      vi.useRealTimers();
     }
     expect(seen).toEqual([
       ["保存済", "clean", "true"],
@@ -98,5 +105,51 @@ describe("EditToolbar", () => {
     expect(onSave).toHaveBeenCalledTimes(1);
     await act(async () => root.unmount());
     host.remove();
+  });
+
+  it("shows 'saving' only when the save takes longer than SAVING_SHOW_MS, keeping the previous look until then", async () => {
+    vi.useFakeTimers();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const render = (state: "clean" | "dirty" | "saving" | "error") =>
+      act(async () =>
+        root.render(
+          <EditToolbar
+            onSave={() => undefined}
+            onUndo={() => undefined}
+            onInsert={() => undefined}
+            saveState={state}
+            saveDisabled={state === "clean" || state === "saving"}
+          />,
+        ),
+      );
+    const save = () => host.querySelector<HTMLButtonElement>(".tb-save")!;
+    const look = () => [save().textContent, save().dataset.state];
+    try {
+      // すぐ終わる保存: 保存 → 保存済（「保存中」をはさまない）
+      await render("dirty");
+      await render("saving");
+      expect(look()).toEqual(["保存", "dirty"]);
+      await act(async () => vi.advanceTimersByTime(SAVING_SHOW_MS - 1));
+      expect(look()).toEqual(["保存", "dirty"]);
+      await render("clean");
+      expect(look()).toEqual(["保存済", "clean"]);
+      // 長引いた保存
+      await render("dirty");
+      await render("saving");
+      await act(async () => vi.advanceTimersByTime(SAVING_SHOW_MS));
+      expect(look()).toEqual(["保存中", "saving"]);
+      // 再試行の間は、長引くまで「再試行」のまま
+      await render("error");
+      await render("saving");
+      expect(look()).toEqual(["再試行", "error"]);
+      await act(async () => vi.advanceTimersByTime(SAVING_SHOW_MS));
+      expect(look()).toEqual(["保存中", "saving"]);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      vi.useRealTimers();
+    }
   });
 });

@@ -1,4 +1,4 @@
-import type { SyntheticEvent } from "react";
+import { type SyntheticEvent, useEffect, useRef, useState } from "react";
 
 // ソフトキーボード表示中も見えるツールバー（spec 4.2）。押してもエディタのフォーカスを外さない。
 // Android の Chrome は pointerdown を止めても、後から合成する mousedown でフォーカスを移すことがあるので両方止める
@@ -7,6 +7,24 @@ export const TOOLBAR_CHARS = ["#", "[", "]", "(", ")", '"'];
 type SaveState = "clean" | "dirty" | "saving" | "conflict" | "error";
 // 「保存」は保存の状態も示す（ヘッダの状態と画面の上下に分かれないように）。幅を変えないよう 3 文字まで
 const SAVE_TEXT: Record<SaveState, string> = { clean: "保存済", dirty: "保存", saving: "保存中", conflict: "衝突", error: "再試行" };
+// 「保存中」は、保存がこれより長く掛かったときだけ出す（すぐ終わる保存で 3 つの文言が続けて入れ替わらないように）
+export const SAVING_SHOW_MS = 400;
+
+// saving に入ってから SAVING_SHOW_MS の間は、その前の状態のまま見せる
+function useShownState(state: SaveState): SaveState {
+  const before = useRef<SaveState>(state === "saving" ? "dirty" : state);
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (state !== "saving") {
+      before.current = state;
+      setSlow(false);
+      return;
+    }
+    const t = setTimeout(() => setSlow(true), SAVING_SHOW_MS);
+    return () => clearTimeout(t);
+  }, [state]);
+  return state === "saving" && !slow ? before.current : state;
+}
 
 export function EditToolbar(props: {
   onSave(): void;
@@ -21,7 +39,7 @@ export function EditToolbar(props: {
   const hold = { onPointerDown: keep, onMouseDown: keep };
   // 保存済みでも disabled にはしない（disabled のボタンは押したときにフォーカスを奪う）。aria-disabled で示す
   const saveOff = props.saveDisabled || props.disabled === true;
-  const state = props.saveState ?? (props.saveDisabled ? "clean" : "dirty");
+  const state = useShownState(props.saveState ?? (props.saveDisabled ? "clean" : "dirty"));
   return (
     <div className="edit-toolbar" role="toolbar" aria-label="入力補助" data-locked={props.disabled === true}>
       <button

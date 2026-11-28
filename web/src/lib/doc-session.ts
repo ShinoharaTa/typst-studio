@@ -185,7 +185,8 @@ export class DocSession {
     this.rev = c.rev;
     this.saved = c.content;
     this.doc = c.content;
-    this.set({ state: "clean", conflict: undefined, diskChanged: false, removed: false });
+    // 前の保存の失敗も、捨てた編集と一緒に消す（残すと、次に打ったときに失敗の表示が戻る）
+    this.set({ state: "clean", conflict: undefined, diskChanged: false, removed: false, error: undefined });
     return c.content;
   }
 
@@ -193,7 +194,7 @@ export class DocSession {
   discard(): void {
     if (!this.snap.conflict) return;
     this.saved = this.text;
-    this.set({ state: "clean", conflict: undefined });
+    this.set({ state: "clean", conflict: undefined, error: undefined });
   }
 
   // 衝突: 手元の内容で上書きする（無くなっていれば作り直す）

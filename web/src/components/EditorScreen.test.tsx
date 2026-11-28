@@ -17,7 +17,7 @@ interface Put {
 
 let files: Record<string, { content: string; rev: string }>;
 let puts: Put[];
-let putReply: ((p: Put) => Response) | null;
+let putReply: ((p: Put) => Response | Promise<Response>) | null;
 let root: Root | null;
 let host: HTMLDivElement;
 // 2 ペイン（min-width: 900px）として振る舞わせる
@@ -372,5 +372,71 @@ describe("leaving the editor", () => {
     await go("#/p/sample-book/edit/a.typ?tab=preview");
     expect(puts).toEqual([]);
     expect(host.querySelector(".cm-editor")).not.toBeNull();
+  });
+});
+
+describe("save state", () => {
+  const saveBtn = () => host.querySelector<HTMLButtonElement>(".tb-save")!;
+  const clickSave = () => act(async () => saveBtn().click());
+
+  it("shows a failed write on Save and in the header, and keeps it while typing on until a save succeeds", async () => {
+    await openEditor();
+    type("X");
+    putReply = () => {
+      throw new TypeError("Failed to fetch");
+    };
+    await clickSave();
+    await until(() => saveBtn().dataset.state === "error", "save error");
+    expect(host.querySelector(".save-error")?.textContent).toBe("保存できません");
+    // 1 文字打っても、失敗の見た目は消えない
+    type("Y");
+    await tick();
+    expect(saveBtn().dataset.state).toBe("error");
+    expect(saveBtn().getAttribute("aria-disabled")).toBe("false");
+    expect(host.querySelector(".save-error")).not.toBeNull();
+    // 回線が戻って保存できたら消える
+    putReply = null;
+    await clickSave();
+    await until(() => saveBtn().dataset.state === "clean", "saved");
+    expect(host.querySelector(".save-state")).toBeNull();
+    expect(files["a.typ"].content).toBe("YX= A\n");
+  });
+
+  it("shows nothing in the header while dirty or saving", async () => {
+    await openEditor();
+    expect(saveBtn().dataset.state).toBe("clean");
+    type("X");
+    await tick();
+    expect(saveBtn().dataset.state).toBe("dirty");
+    expect(host.querySelector(".save-state")).toBeNull();
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    putReply = async (p) => {
+      await held;
+      files[p.path] = { content: p.content, rev: "r1" };
+      return json(200, { rev: "r1" });
+    };
+    await clickSave();
+    await until(() => puts.length === 1, "write started");
+    // 保存中は押せない。ヘッダには何も出さない
+    expect(saveBtn().getAttribute("aria-disabled")).toBe("true");
+    expect(host.querySelector(".save-state")).toBeNull();
+    release();
+    await until(() => saveBtn().dataset.state === "clean", "saved");
+    expect(host.querySelector(".save-state")).toBeNull();
+  });
+
+  it("marks Save as disabled during a conflict (the dialog decides)", async () => {
+    await openEditor();
+    type("X");
+    putReply = () => json(409, { error: "changed on disk", rev: "rDisk", content: "= other\n" });
+    await clickSave();
+    await until(() => saveBtn().dataset.state === "conflict", "conflict");
+    expect(saveBtn().getAttribute("aria-disabled")).toBe("true");
+    expect(host.querySelector(".save-conflict")).not.toBeNull();
+    const n = puts.length;
+    await clickSave();
+    await tick();
+    expect(puts.length).toBe(n);
   });
 });

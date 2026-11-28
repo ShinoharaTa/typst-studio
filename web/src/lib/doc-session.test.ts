@@ -228,6 +228,43 @@ describe("DocSession", () => {
     expect(t.s.snapshot.state).toBe("clean");
   });
 
+  it("keeps a save error through further typing and the retry, until a save succeeds", async () => {
+    const t = setup();
+    await t.s.load();
+    t.type("mine");
+    t.failNext(new Error("network down"));
+    await t.s.save();
+    expect(t.s.snapshot).toMatchObject({ state: "error", error: "network down" });
+    // 打つと dirty に戻るが、失敗は残る（画面は失敗の見た目を保つ）
+    t.type("mine2");
+    expect(t.s.snapshot).toMatchObject({ state: "dirty", error: "network down" });
+    const release = t.hold();
+    const p = t.s.save();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.s.snapshot).toMatchObject({ state: "saving", error: "network down" });
+    release();
+    expect(await p).toBe(true);
+    expect(t.s.snapshot.state).toBe("clean");
+    expect(t.s.snapshot.error).toBeUndefined();
+  });
+
+  it("drops an earlier save error when a conflict is resolved by reloading or discarding", async () => {
+    for (const how of ["reload", "discard"] as const) {
+      const t = setup();
+      await t.s.load();
+      t.type("mine");
+      t.failNext(new Error("network down"));
+      await t.s.save();
+      t.failNext(new ConflictError("changed", how === "reload" ? "rX" : "rBig", how === "reload" ? "other" : null, {}));
+      await t.s.save();
+      expect(t.s.snapshot).toMatchObject({ state: "conflict", error: "network down" });
+      if (how === "reload") expect(t.s.resolveReload()).toBe("other");
+      else t.s.discard();
+      expect(t.s.snapshot.state, how).toBe("clean");
+      expect(t.s.snapshot.error, how).toBeUndefined();
+    }
+  });
+
   it("never runs two writes at once, even when an earlier save's cleanup finishes late", async () => {
     let disk = { content: "a", rev: "r0" };
     let inFlight = 0;

@@ -100,6 +100,32 @@ describe("CodeEditor line diagnostics", () => {
     await act(async () => root.unmount());
   });
 
+  it("scrolls the cursor above the bottom only when the inset grows (not when it shrinks or stays)", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const props = { onDocChange: () => undefined, onCursor: () => undefined, onSave: () => undefined };
+    await act(async () => root.render(<CodeEditor {...props} bottomInset={12} />));
+    const v = EditorView.findFromDOM(host.querySelector(".cm-editor") as HTMLElement)!;
+    // scrollIntoView の effect は型が公開されていないので、値（ScrollTarget）の形で見分ける
+    const scrolls: number[] = [];
+    const orig = v.dispatch.bind(v);
+    v.dispatch = ((...args: Parameters<EditorView["dispatch"]>) => {
+      const spec = args[0] as { effects?: { value: unknown }[] };
+      const n = (spec.effects ?? []).filter((e) => typeof e.value === "object" && e.value !== null && "range" in e.value && "y" in e.value).length;
+      scrolls.push(n);
+      return orig(...(args as [never]));
+    }) as EditorView["dispatch"];
+    const set = (b: number) => act(async () => root.render(<CodeEditor {...props} bottomInset={b} />));
+    await set(72);
+    await set(40);
+    await set(12);
+    await set(12);
+    await set(60);
+    expect(scrolls).toEqual([1, 0, 0, 1]);
+    await act(async () => root.unmount());
+  });
+
   it("keeps the lint gutter on wide screens", async () => {
     const { host, root } = await render(false);
     expect(host.querySelector(".cm-gutter-lint")).not.toBeNull();

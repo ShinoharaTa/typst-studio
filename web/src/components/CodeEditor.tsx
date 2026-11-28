@@ -121,6 +121,8 @@ export const CodeEditor = forwardRef<CodeEditorHandle, Props>(function CodeEdito
   };
   const gutter = useRef(new Compartment());
   const margins = useRef(new Compartment());
+  // 作ったときの余白（marginsExt に渡した値）。増えたときだけカーソルを運ぶ
+  const lastInset = useRef(props.bottomInset ?? 0);
 
   const extensions = () => [
     lineNumbers(),
@@ -186,11 +188,13 @@ export const CodeEditor = forwardRef<CodeEditorHandle, Props>(function CodeEdito
     const v = view.current;
     if (!v) return;
     const bottom = props.bottomInset ?? 0;
-    // 余白が増えたら、カーソルを帯より上へ運ぶ
+    const grew = bottom > lastInset.current;
+    lastInset.current = bottom;
+    // 余白が増えたら、カーソルを帯より上へ運ぶ（減ったり消えたりしただけではスクロールを動かさない）
     v.dispatch({
       effects: [
         margins.current.reconfigure(marginsExt(bottom)),
-        ...(bottom > 0 ? [EditorView.scrollIntoView(v.state.selection.main.head, { y: "nearest" })] : []),
+        ...(grew ? [EditorView.scrollIntoView(v.state.selection.main.head, { y: "nearest" })] : []),
       ],
     });
   }, [props.bottomInset]);

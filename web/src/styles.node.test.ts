@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 // styles.css のトークンの検査（線を使わない取り決めと、文字のコントラスト）と、jsdom に当てて算出したスタイルの検査
 // （vitest は CSS の import を空にするので、ファイルを直接読む。型は tsconfig.node-test.json で検査する）
+// 制約: jsdom の getComputedStyle は詳細度を見ない（後に書いた規則が勝つ）。
+//   規則どうしの勝ち負け（詳細度の高い規則が別の規則を打ち消すか）はここでは確かめられないので、
+//   セレクタの形を正規表現で確かめ、実際の見え方は Chromium で確かめる
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -53,8 +56,32 @@ describe("styles.css", () => {
   it("removes CodeMirror's dotted focus outline, and shows focus by the current line only while focused", () => {
     expect(css).toMatch(/\.code-editor \.cm-editor\.cm-focused \{\s*outline: none;/);
     expect(css).toMatch(
-      /\.code-editor \.cm-editor:not\(\.cm-focused\) \.cm-activeLine,\s*\.code-editor \.cm-editor:not\(\.cm-focused\) \.cm-activeLineGutter \{\s*background: transparent;/,
+      /\.code-editor \.cm-editor:not\(\.cm-focused\) \.cm-activeLine:not\(\.cm-diag-line\),\s*\.code-editor \.cm-editor:not\(\.cm-focused\) \.cm-activeLineGutter \{\s*background: transparent;/,
     );
+  });
+
+  it("keeps the diagnostic color of the cursor line on narrow screens while the editor is not focused", () => {
+    // 現在行の強調を消す規則（詳細度 0,5,0）は、狭い画面の診断の地の色（0,3,0）より強いので、診断の行を外しておく
+    const rules = css.match(/[^{}]*:not\(\.cm-focused\)[^{}]*\.cm-activeLine(?!Gutter)[^{,]*/g) ?? [];
+    expect(rules.length).toBeGreaterThan(0);
+    for (const r of rules) expect(r).toContain(":not(.cm-diag-line)");
+    expect(css).toMatch(/\.code-editor\[data-compact="true"\] \.cm-diag-error \{\s*background:/);
+  });
+
+  it("keeps Save on one line at a fixed size and the same weight in every state, and lets tab labels shrink with an ellipsis", () => {
+    const rule = (sel: string) => new RegExp(`\\n${sel.replace(/[.[\]]/g, "\\$&")} \\{([^}]*)\\}`).exec(css)?.[1] ?? "";
+    expect(rule(".tb-save")).toMatch(/font-size: \d+px;/);
+    expect(rule(".tb-save")).toContain("white-space: nowrap");
+    expect(css.match(/\.tb-save[^{]*\{[^}]*font-weight[^}]*\}/g)).toHaveLength(1);
+    expect(rule(".tab")).toMatch(/font-size: min\(/);
+    expect(rule(".tab")).not.toContain("overflow");
+    expect(rule(".tab-label")).toContain("text-overflow: ellipsis");
+    // 未保存は塗りのアクセントにせず、薄い地にアクセントの文字
+    expect(rule('.tb-save[data-state="dirty"]')).toContain("background: var(--accent-soft)");
+    for (const block of [light, dark]) {
+      expect(contrast(token(block, "accent"), token(block, "accent-soft"))).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(token(block, "muted"), token(block, "panel"))).toBeGreaterThanOrEqual(4.5);
+    }
   });
 
   it("puts the toolbar on the editor's panel with box-colored keys, stretched to the full width", () => {
