@@ -1021,6 +1021,36 @@ code {
 
 .book-auto {
   margin-left: auto;
+  flex: none;
+}
+
+.book-status .badge {
+  flex: none;
+}
+
+/* 状態の文は 1 行に収める（失敗したときも 2 行にしない）。タップで全文 */
+.book-summary {
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: var(--tap);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.book-summary.error {
+  color: var(--error);
+}
+
+.book-summary[data-expanded="true"] {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .pdf-download {
@@ -1072,7 +1102,7 @@ code {
 
 .book-status {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: var(--sp-1) var(--sp-2);
   align-items: center;
   padding: 0 var(--sp-3) 6px;

@@ -167,17 +167,37 @@ const REASON: Record<string, string> = {
   nomem: "メモリ不足",
 };
 
-function BuildSummary({ status }: { status: BuildStatus | null }) {
+export function buildSummaryText(status: BuildStatus | null): string {
   const last = status?.last;
-  if (!last) return <span className="muted small">{status?.state === "running" ? "ビルド中…" : "ビルド履歴なし"}</span>;
+  if (!last) return status?.state === "running" ? "ビルド中…" : "ビルド履歴なし";
   const time = new Date(last.finishedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const parts = [
+    last.ok ? "成功" : `失敗（${REASON[last.reason] ?? last.reason}）`,
+    time,
+    `${(last.durationMs / 1000).toFixed(1)} 秒`,
+    `警告 ${last.warnings}`,
+  ];
+  if (status?.state === "running") parts.push("ビルド中…");
+  if (status?.state === "queued") parts.push("待ち 1 件");
+  return parts.join(" ・ ");
+}
+
+// 状態の行は 1 行に収め、はみ出す分は省略する（タップで全文）
+function BuildSummary({ status }: { status: BuildStatus | null }) {
+  const [expanded, setExpanded] = useState(false);
+  const text = buildSummaryText(status);
+  const failed = status?.last ? !status.last.ok : false;
   return (
-    <span className="small">
-      {last.ok ? "成功" : `失敗（${REASON[last.reason] ?? last.reason}）`} ・ {time} ・ {(last.durationMs / 1000).toFixed(1)} 秒 ・ 警告{" "}
-      {last.warnings}
-      {status?.state === "running" && " ・ ビルド中…"}
-      {status?.state === "queued" && " ・ 待ち 1 件"}
-    </span>
+    <button
+      type="button"
+      className={failed ? "book-summary small error" : "book-summary small"}
+      data-expanded={expanded}
+      aria-expanded={expanded}
+      title={text}
+      onClick={() => setExpanded((x) => !x)}
+    >
+      {text}
+    </button>
   );
 }
 
