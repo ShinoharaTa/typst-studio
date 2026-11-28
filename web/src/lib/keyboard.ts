@@ -42,7 +42,8 @@ export class KeyboardDetector {
     }
     // キーボードが出ていないと分かっているとき（フォーカスが無い）の高さを最大に入れる
     if (!s.editing || s.inset <= IOS_INSET_PX) this.maxHeight = Math.max(this.maxHeight, s.height + Math.max(0, s.inset));
-    if (!s.editing) return false;
+    // PC（細かいポインタ）ではソフトキーボードは出ないとみなす（ウィンドウの高さを縮めてからフォーカスしても付けない）
+    if (!s.editing || s.finePointer) return false;
     return s.inset > IOS_INSET_PX || this.maxHeight - s.height >= SHRINK_PX;
   }
 }

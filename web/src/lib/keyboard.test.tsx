@@ -64,6 +64,17 @@ describe("KeyboardDetector", () => {
     expect(phone.update(s(915, 330, true, 0, { innerHeight: 330, screenHeight: 412 }))).toBe(false);
   });
 
+  it("never reports a keyboard with a fine pointer (PC), even after shrinking the window before focusing", () => {
+    const pc = new KeyboardDetector();
+    const fine = { finePointer: true, innerHeight: 900, screenHeight: 1040 };
+    expect(pc.update(s(1000, 900, false, 0, fine))).toBe(false);
+    // ウィンドウの高さを縮めてからエディタにフォーカスする
+    expect(pc.update(s(1000, 500, false, 0, { ...fine, innerHeight: 500 }))).toBe(false);
+    expect(pc.update(s(1000, 400, true, 0, { ...fine, innerHeight: 400 }))).toBe(false);
+    // iOS の判定（inset）でも付けない
+    expect(pc.update(s(1000, 400, true, 300, fine))).toBe(false);
+  });
+
   it("iOS: detects the keyboard from the inset, only while editing", () => {
     const d = new KeyboardDetector();
     expect(d.update(s(390, 844, false))).toBe(false);
