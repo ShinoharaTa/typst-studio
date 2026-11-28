@@ -436,41 +436,44 @@ export function EditorScreen({ route }: { route: EditRoute }) {
   return (
     <div className="screen editor-screen" data-wide={wide} data-swap={swapped}>
       <header className="topbar">
-        <a className="icon-btn" href={formatRoute({ view: "articles", project })} aria-label="記事一覧へ">
-          ‹
-        </a>
-        <div className="topbar-text">
-          <h1 className="topbar-title" title={file}>
-            {file === article ? (
-              <>
-                {articleName.group.length > 0 && <span className="topbar-group">{articleName.group.join(" / ")} / </span>}
-                {articleName.name}
-              </>
-            ) : (
-              fileName
-            )}
-          </h1>
-          <div className="topbar-sub">
-            {file !== article && (
-              // 記事以外のファイルを開いた後、記事のファイルへ戻る
-              <button
-                type="button"
-                className="pill article-pill"
-                onClick={() => navigate({ ...routeRef.current, file: article })}
-                aria-label={`記事 ${articleName.name} のファイルへ戻る`}
-              >
-                記事: {articleName.name}
-              </button>
-            )}
-            {git && <GitBadge git={git} compact />}
-            <span className={`save-state save-${snap.state}`}>{SAVE_LABEL[snap.state]}</span>
+        {/* 2 ペインでは、ヘッダをペインと同じ 2 列に分ける（題は編集側、タブは右ペイン側の真上） */}
+        <div className="topbar-main">
+          <a className="icon-btn" href={formatRoute({ view: "articles", project })} aria-label="記事一覧へ">
+            ‹
+          </a>
+          <div className="topbar-text">
+            <h1 className="topbar-title" title={file}>
+              {file === article ? (
+                <>
+                  {articleName.group.length > 0 && <span className="topbar-group">{articleName.group.join(" / ")} / </span>}
+                  {articleName.name}
+                </>
+              ) : (
+                fileName
+              )}
+            </h1>
+            <div className="topbar-sub">
+              {file !== article && (
+                // 記事以外のファイルを開いた後、記事のファイルへ戻る
+                <button
+                  type="button"
+                  className="pill article-pill"
+                  onClick={() => navigate({ ...routeRef.current, file: article })}
+                  aria-label={`記事 ${articleName.name} のファイルへ戻る`}
+                >
+                  記事: {articleName.name}
+                </button>
+              )}
+              {git && <GitBadge git={git} compact />}
+              <span className={`save-state save-${snap.state}`}>{SAVE_LABEL[snap.state]}</span>
+            </div>
           </div>
         </div>
         {wide && (
-          // 両方のペインに効く操作なので、どちらのペインにも属さないヘッダに置く
+          // 両方のペインに効く操作なので、ペインの境目の真上に置く（入れ替えても位置が変わらない）
           <button
             type="button"
-            className="btn swap-btn"
+            className="swap-btn"
             aria-label="編集とプレビューの左右を入れ替える"
             aria-pressed={swapped}
             onClick={() => setPaneOrder(swapped ? "edit-left" : "edit-right")}
@@ -478,20 +481,31 @@ export function EditorScreen({ route }: { route: EditRoute }) {
             ⇄ 入れ替え
           </button>
         )}
+        {wide && (
+          <nav className="view-tabs" aria-label="表示の切り替え">
+            {(["preview", "book", "images"] as const).map((t) => (
+              <button key={t} type="button" className="tab" aria-pressed={sideTab === t} onClick={() => setTab(t)}>
+                {TAB_LABEL[t]}
+              </button>
+            ))}
+          </nav>
+        )}
       </header>
+
+      {!wide && (
+        // タブは幅・キーボードの有無によらず上端（切り替える面の真上）に置く
+        <nav className="view-tabs" aria-label="表示の切り替え">
+          {(["edit", "preview", "book", "images"] as const).map((t) => (
+            <button key={t} type="button" className="tab" aria-pressed={tab === t} onClick={() => setTab(t)}>
+              {TAB_LABEL[t]}
+            </button>
+          ))}
+        </nav>
+      )}
 
       <div className="panes">
         {editPane}
         <div className="side">
-          {wide && (
-            <nav className="side-tabs" aria-label="表示の切り替え">
-              {(["preview", "book", "images"] as const).map((t) => (
-                <button key={t} type="button" className="tab" aria-pressed={sideTab === t} onClick={() => setTab(t)}>
-                  {TAB_LABEL[t]}
-                </button>
-              ))}
-            </nav>
-          )}
           <div className="side-body">{sidePanes}</div>
         </div>
         {jump && (
@@ -513,16 +527,6 @@ export function EditorScreen({ route }: { route: EditRoute }) {
           </div>
         )}
       </div>
-
-      {!wide && (
-        <nav className="bottom-tabs" aria-label="表示の切り替え">
-          {(["edit", "preview", "book", "images"] as const).map((t) => (
-            <button key={t} type="button" className="tab" aria-pressed={tab === t} onClick={() => setTab(t)}>
-              {TAB_LABEL[t]}
-            </button>
-          ))}
-        </nav>
-      )}
 
       <ImageSheet
         project={project}

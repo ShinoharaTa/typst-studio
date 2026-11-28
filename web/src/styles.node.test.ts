@@ -49,6 +49,22 @@ describe("styles.css", () => {
     expect(css).toMatch(/\.edit-toolbar\[data-locked="true"\] \.tb-save \{\s*opacity: 0\.5;/);
   });
 
+  it("removes CodeMirror's dotted focus outline", () => {
+    expect(css).toMatch(/\.code-editor \.cm-editor\.cm-focused \{\s*outline: none;/);
+  });
+
+  it("puts the toolbar on the editor's panel with box-colored keys, stretched to the full width", () => {
+    const rule = (sel: string) => new RegExp(`\\n${sel.replace(/[.[\]]/g, "\\$&")} \\{([^}]*)\\}`).exec(css)?.[1] ?? "";
+    expect(rule(".edit-toolbar")).toContain("background: var(--panel)");
+    expect(rule(".pane-edit")).toContain("background: var(--panel)");
+    expect(rule(".tb-btn")).toContain("background: var(--box)");
+    expect(rule(".tb-char")).not.toContain("max-width");
+  });
+
+  it("keeps the view tabs visible while the keyboard is shown", () => {
+    expect(css).not.toMatch(/\[data-kb\][^{]*\.view-tabs/);
+  });
+
   it("does not read the arrow of 'continue' aloud", () => {
     expect(css).toMatch(/\.continue-label::before \{\s*content: "▶ " \/ "";/);
   });

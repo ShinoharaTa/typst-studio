@@ -59,9 +59,7 @@ export function PdfViewer({ url, active, downloadUrl }: { url: string | null; ac
 
   return (
     <div className="pdf-viewer">
-      <div className="pdf-scroller" ref={scroller} />
-      {!url && <p className="pdf-empty muted">まだビルドされていません</p>}
-      {error && <p className="notice error pdf-error">PDF を表示できません: {error}</p>}
+      {/* 操作部はペインの上端にまとめる（プロファイル・ビルドの直下。下端はキーボードの上に出る編集のツールバーだけ） */}
       <div className="pdf-bar">
         <span className="pdf-pagenum" aria-live="polite">
           {page.total ? `${page.page} / ${page.total}` : "—"}
@@ -81,6 +79,11 @@ export function PdfViewer({ url, active, downloadUrl }: { url: string | null; ac
         <button type="button" className="icon-btn" onClick={() => changeZoom(stepZoom(zoom, 1))} aria-label="拡大">
           ＋
         </button>
+      </div>
+      <div className="pdf-stage">
+        <div className="pdf-scroller" ref={scroller} />
+        {!url && <p className="pdf-empty muted">まだビルドされていません</p>}
+        {error && <p className="notice error pdf-error">PDF を表示できません: {error}</p>}
       </div>
     </div>
   );

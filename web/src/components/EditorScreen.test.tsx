@@ -268,6 +268,27 @@ describe("leaving the editor", () => {
     expect(host.querySelector(".swap-btn")).toBeNull();
   });
 
+  const tabLabels = (nav: Element | null) => [...(nav?.querySelectorAll(".tab") ?? [])].map((b) => b.textContent);
+
+  it("puts the view tabs in a row right under the header in one-pane mode (not at the bottom)", async () => {
+    await openEditor();
+    const labels = tabLabels;
+    const row = host.querySelector(".editor-screen > .view-tabs");
+    // ヘッダの直後、ペインより前（下端には置かない）
+    expect(row?.previousElementSibling?.classList.contains("topbar")).toBe(true);
+    expect(labels(row)).toEqual(["編集", "プレビュー", "本", "画像"]);
+    expect(host.querySelector(".topbar .view-tabs")).toBeNull();
+    // 編集の入力補助はエディタと同じペインの中
+    expect(host.querySelector(".pane-edit .edit-toolbar")).not.toBeNull();
+  });
+
+  it("puts the view tabs in the side column of the header in two-pane mode", async () => {
+    wideMode = true;
+    await openEditor();
+    expect(host.querySelector(".editor-screen > .view-tabs")).toBeNull();
+    expect(tabLabels(host.querySelector(".topbar .view-tabs"))).toEqual(["プレビュー", "本", "画像"]);
+  });
+
   it("offers 'continue' on the project list and marks the last article", async () => {
     await openEditor("b.typ");
     await go("#/");

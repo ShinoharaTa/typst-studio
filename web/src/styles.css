@@ -41,6 +41,8 @@
   --r-panel: 16px;
   --r-box: 10px;
   --r-thumb: 6px;
+  /* 記号キー。キーボードのキーに寄せ、タブ（ピル）・ボタン（10px）と形で見分ける */
+  --r-key: 6px;
   --r-sheet: 20px;
   --r-pill: 999px;
   --tap: 44px;
@@ -239,6 +241,7 @@ code {
 .icon-btn,
 .btn-text,
 .tab,
+.swap-btn,
 .tb-btn,
 .chip,
 .link-btn,
@@ -344,6 +347,7 @@ code {
   .btn:hover:not(:disabled),
   .icon-btn:hover,
   .tab:hover,
+  .swap-btn:hover,
   .tb-btn:hover:not(:disabled):not([aria-disabled="true"]),
   .list-row:hover,
   .img-row-main:hover,
@@ -614,9 +618,10 @@ code {
   pointer-events: none;
 }
 
-/* 編集のペインは、操作部（ツールバー）が背景色、本文（エディタ）がパネル色 */
+/* 編集のペインは、本文（エディタ）と入力補助（ツールバー）を同じパネルの面に載せる。
+   ツールバーを背景色にすると、エディタから切り離された別の部品に見える */
 .pane-edit {
-  background: var(--bg);
+  background: var(--panel);
 }
 
 .editor-screen[data-wide="false"] .side,
@@ -638,9 +643,7 @@ code {
 .editor-screen[data-wide="true"] .pane-edit {
   position: relative;
   min-height: 0;
-}
-
-.editor-screen[data-wide="true"] .editor-wrap {
+  /* 角丸はツールバーごと包む（ツールバーをパネルの外に出さない。左右のパネルの上下端が揃う） */
   border-radius: var(--r-panel);
   overflow: hidden;
 }
@@ -650,9 +653,84 @@ code {
   order: 2;
 }
 
+/* 2 ペインのヘッダは panes と同じ 2 列（同じ左右の余白と隙間）。題は編集側の列、タブは右ペイン側の列。
+   入れ替えると、どちらもペインと一緒に入れ替わる */
+.editor-screen[data-wide="true"] .topbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 0 minmax(0, 1fr);
+  column-gap: var(--sp-1);
+}
+
+.editor-screen[data-wide="true"] .topbar-main {
+  order: 1;
+}
+
+.editor-screen[data-wide="true"] .swap-btn {
+  order: 2;
+}
+
+.editor-screen[data-wide="true"] .topbar .view-tabs {
+  order: 3;
+}
+
+.editor-screen[data-wide="true"][data-swap="true"] .topbar-main {
+  order: 3;
+}
+
+.editor-screen[data-wide="true"][data-swap="true"] .topbar .view-tabs {
+  order: 1;
+}
+
+.topbar-main {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-width: 0;
+  flex: 1;
+}
+
+/* 入れ替え: ペインの境目の真上（幅 0 の列の中央）。入れ替えても位置が変わらない。
+   地なしの文字ボタンにして、タブ（選択中はパネル色のピル）と見分ける */
 .swap-btn {
-  flex: none;
-  margin-left: auto;
+  justify-self: center;
+  width: var(--swap-w);
+  min-height: var(--tap);
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-box);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.swap-btn:active {
+  background: var(--box-press);
+  transform: scale(0.97);
+}
+
+.editor-screen {
+  --swap-w: 104px;
+}
+
+/* 入れ替えボタンと重ならないよう、境目の側を空ける */
+.editor-screen[data-wide="true"] .topbar-main {
+  padding-right: calc(var(--swap-w) / 2);
+}
+
+.editor-screen[data-wide="true"] .topbar .view-tabs {
+  padding: 0 0 0 calc(var(--swap-w) / 2);
+  /* 入れ替えボタン（列の外へはみ出す）を覆わない */
+  background: transparent;
+}
+
+.editor-screen[data-wide="true"][data-swap="true"] .topbar-main {
+  padding-right: 0;
+  padding-left: calc(var(--swap-w) / 2);
+}
+
+.editor-screen[data-wide="true"][data-swap="true"] .topbar .view-tabs {
+  padding: 0 calc(var(--swap-w) / 2) 0 0;
 }
 
 .side {
@@ -660,14 +738,6 @@ code {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-}
-
-.side-tabs {
-  display: flex;
-  gap: var(--sp-1);
-  padding: 0 0 6px;
-  background: var(--bg);
-  flex: none;
 }
 
 .side-body {
@@ -679,14 +749,28 @@ code {
   background: var(--panel);
 }
 
+/* 表示の切り替え。幅・キーボードの有無によらず上端（切り替える面の真上）に置く。
+   1 ペインはヘッダの直下の段、2 ペインはヘッダの右ペイン側の列。キーボード表示中も隠さない */
+.view-tabs {
+  display: flex;
+  gap: var(--sp-1);
+  flex: none;
+  min-width: 0;
+  padding: 0 var(--sp-2) var(--sp-2);
+  background: var(--bg);
+}
+
+/* 選択中はピル形のパネル色。記号キー（角丸 6px・ボックス色・パネルの中）と形・色・場所で見分ける */
 .tab {
   flex: 1;
+  min-width: 0;
   min-height: var(--tap);
   border: 0;
-  border-radius: var(--r-box);
+  border-radius: var(--r-pill);
   background: transparent;
   color: var(--muted);
   font-size: 0.9rem;
+  white-space: nowrap;
 }
 
 .tab:active {
@@ -699,37 +783,24 @@ code {
   font-weight: 600;
 }
 
-.bottom-tabs {
-  display: flex;
-  gap: var(--sp-1);
-  flex: none;
-  padding: 6px var(--sp-2) calc(6px + env(safe-area-inset-bottom));
-  background: var(--bg);
-}
-
-/* キーボード表示中は下部タブを隠して、エディタとツールバーに場所を譲る */
-:root[data-kb] .bottom-tabs {
-  display: none;
-}
-
-/* キーボード表示中は、ヘッダを 1 行（題と保存状態）に詰める */
-:root[data-kb] .editor-screen .topbar {
+/* キーボード表示中は、ヘッダを 1 行（題と保存状態）に詰める（1 ペインのみ。2 ペインはタブがヘッダの段にあるので詰めない） */
+:root[data-kb] .editor-screen[data-wide="false"] .topbar {
   min-height: 40px;
 }
 
-:root[data-kb] .editor-screen .topbar-text {
+:root[data-kb] .editor-screen[data-wide="false"] .topbar-text {
   flex-direction: row;
   align-items: center;
   gap: var(--sp-2);
   padding: 0 var(--sp-1);
 }
 
-:root[data-kb] .editor-screen .topbar-sub .git,
-:root[data-kb] .editor-screen .topbar-sub .article-pill {
+:root[data-kb] .editor-screen[data-wide="false"] .topbar-sub .git,
+:root[data-kb] .editor-screen[data-wide="false"] .topbar-sub .article-pill {
   display: none;
 }
 
-:root[data-kb] .editor-screen .icon-btn {
+:root[data-kb] .editor-screen[data-wide="false"] .icon-btn {
   height: 40px;
 }
 
@@ -759,6 +830,11 @@ code {
   height: 100%;
   background: var(--panel);
   font-size: 16px;
+}
+
+/* CodeMirror の既定のフォーカスの点線を消す（線を使わない。フォーカスはカーソルと行の強調で分かる） */
+.code-editor .cm-editor.cm-focused {
+  outline: none;
 }
 
 .code-editor .cm-scroller {
@@ -814,15 +890,25 @@ code {
   opacity: 0.65;
 }
 
+/* 入力補助。エディタと同じパネルの面に載せ、キーは 1 段上のボックス色（背景色の溝で切り離さない） */
 .edit-toolbar {
   display: flex;
   align-items: center;
   gap: var(--sp-1);
   flex: none;
-  padding: 6px var(--sp-2);
-  background: var(--bg);
+  padding: var(--sp-1) var(--sp-2);
+  background: var(--panel);
   overflow-x: auto;
   scrollbar-width: none;
+}
+
+/* 1 ペインではツールバーが画面の最下段になる（キーボード表示中は下にキーボードが来るので空けない） */
+.editor-screen[data-wide="false"] .edit-toolbar {
+  padding-bottom: calc(var(--sp-1) + env(safe-area-inset-bottom));
+}
+
+:root[data-kb] .editor-screen .edit-toolbar {
+  padding-bottom: var(--sp-1);
 }
 
 .tb-btn {
@@ -830,8 +916,8 @@ code {
   min-width: var(--tap);
   height: var(--tap);
   border: 0;
-  border-radius: var(--r-box);
-  background: var(--panel);
+  border-radius: var(--r-key);
+  background: var(--box);
   color: var(--text);
   font-size: 1.05rem;
 }
@@ -844,11 +930,11 @@ code {
   opacity: 0.5;
 }
 
-/* 記号キーは残りの幅を分け合う（375px・360px でも右端の " まで収める）。保存と元に戻すは幅を保つ */
+/* 記号キーは残りの幅を分け合う（375px・360px でも右端の " まで収める。広い画面では幅いっぱいに伸ばし、右を空けない）。
+   保存と元に戻すは幅を保つ */
 .tb-char {
   flex: 1 1 0;
   min-width: 34px;
-  max-width: 56px;
   padding: 0;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
@@ -1182,10 +1268,23 @@ code {
 }
 
 /* PDF の台（パネルより沈んだ面） */
+/* PDF の台と、その上に重ねる「まだビルドされていません」などの文言 */
+.pdf-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--sp-2) var(--sp-2);
+}
+
+.editor-screen[data-wide="false"] .pdf-stage {
+  padding-bottom: calc(var(--sp-2) + env(safe-area-inset-bottom));
+}
+
 .pdf-scroller {
   flex: 1;
   min-height: 0;
-  margin: 0 var(--sp-2);
   border-radius: var(--r-box);
   background: var(--pdf-bg);
   overflow: auto;
@@ -1225,7 +1324,7 @@ code {
   align-items: center;
   justify-content: flex-end;
   gap: var(--sp-1);
-  padding: var(--sp-1) var(--sp-2);
+  padding: 0 var(--sp-2) var(--sp-2) var(--sp-3);
   background: var(--panel);
   flex: none;
 }
@@ -1250,6 +1349,10 @@ code {
 
 .images-pane .list {
   padding: 0 var(--sp-2) var(--sp-4);
+}
+
+.editor-screen[data-wide="false"] .images-pane .list {
+  padding-bottom: calc(var(--sp-4) + env(safe-area-inset-bottom));
 }
 
 .img-row {

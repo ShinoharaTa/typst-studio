@@ -86,7 +86,7 @@ export function BookPane(props: {
 
   return (
     <div className="book-pane">
-      {/* 1 行目はプロファイルとビルドだけ（スマホで PDF の場所を空ける）。ダウンロードは下のバー、自動ビルドは状態の行へ */}
+      {/* 1 行目はプロファイルとビルドだけ（スマホで PDF の場所を空ける）。ダウンロードは PDF のバー、自動ビルドは状態の行へ */}
       <div className="pane-bar book-bar">
         <select
           className="select"
