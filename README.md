@@ -14,11 +14,11 @@ scripts/setup.sh
 scripts/add-project.sh <name> <git-url>
 # 例: scripts/add-project.sh sample-book https://github.com/<owner>/<repo>.git
 
-# 同梱のサンプルの本を試す（ローカルのディレクトリはコピーして git init・初回コミットした独立のリポジトリにする）
+# 同梱のサンプルの本を試す（git リポジトリでないディレクトリはコピーして git init・初回コミットした独立のリポジトリにする）
 scripts/add-project.sh sample-book examples/sample-book
 ```
 
-ローカルのディレクトリから作るときは `typst-studio.toml` があるディレクトリだけを受け付ける。初回コミットの author は `typst-studio <noreply@typst-studio.invalid>`（`LOCAL_AUTHOR_NAME` / `LOCAL_AUTHOR_EMAIL` で変えられる）。
+ローカルの git リポジトリ（bare を含む）は従来どおり clone する。コピーするのは git リポジトリでないディレクトリ（親リポジトリの中の一部を含む）で、`typst-studio.toml` が要る。入れ子の `.git` や、コピー元の外を指すシンボリックリンクがあれば止める。初回コミットの author は `typst-studio <noreply@typst-studio.invalid>`（`LOCAL_AUTHOR_NAME` / `LOCAL_AUTHOR_EMAIL` で変えられる）。
 
 ### サンプルの本 `examples/sample-book/`
 

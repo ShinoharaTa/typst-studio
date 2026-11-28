@@ -4,7 +4,7 @@ typst = "0.14.2"
 
 [fonts]
 paths = ["fonts"]
-system = true
+system = false
 
 [book]
 entry = "main.typ"
@@ -21,7 +21,7 @@ upload_dir = "images"
 
 [[articles.override]]
 match = "articles/author-b/**"
-inputs = { CATEGORY = "column" }
+inputs = { CATEGORY = "コラム" }
 
 [profiles.print]
 entry = "main.typ"
