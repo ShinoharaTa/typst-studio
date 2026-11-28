@@ -31,6 +31,84 @@ const sources = (() => {
   return out;
 })();
 
+// コメントを外す（説明に書いたクラス名を、使っている・使ってはいけないものと数えない）。
+// 文字列の中の // （URL など）は、直前が : か引用符なら残す
+const stripComments = (src: string) =>
+  src
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:"'`\\])\/\/.*$/gm, "$1");
+
+// 文字列リテラル（"…" '…' `…`）の中身。テンプレートの ${…} は空白にし、その中の式の文字列も拾う。
+// className に直接書いたものも、定数・cn()・cva() に置いたものも同じに拾う
+function stringLiterals(src: string): string[] {
+  const out: string[] = [];
+  for (const m of stripComments(src).matchAll(/"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'|`((?:[^`\\]|\\.)*)`/g)) {
+    if (m[3] === undefined) out.push(m[1] ?? m[2]);
+    else {
+      out.push(m[3].replace(/\$\{[^}]*\}/g, " "));
+      for (const e of m[3].matchAll(/\$\{([^}]*)\}/g)) out.push(...stringLiterals(e[1]));
+    }
+  }
+  return out;
+}
+
+// クラス名の本体（hover: などの variant、! の重要度、- の符号を外したもの）。任意のプロパティ（[background:red]）はそのまま返す
+function utility(cls: string): string {
+  // 角括弧の外にある最後の : の後ろ
+  let depth = 0;
+  let last = -1;
+  for (let i = 0; i < cls.length; i++) {
+    if (cls[i] === "[") depth++;
+    else if (cls[i] === "]") depth--;
+    else if (cls[i] === ":" && depth === 0) last = i;
+  }
+  return cls
+    .slice(last + 1)
+    .replace(/^!|!$/g, "")
+    .replace(/^-/, "");
+}
+const classTokens = (src: string) => stringLiterals(src).flatMap((l) => l.split(/\s+/).filter(Boolean));
+
+// JSX の部品（大文字で始まる要素）に渡した className の文字列
+function componentClassNames(src: string): { tag: string; classes: string[] }[] {
+  const code = stripComments(src);
+  const out: { tag: string; classes: string[] }[] = [];
+  for (const m of code.matchAll(/<([A-Z][\w.]*)\b/g)) {
+    // タグの終わり（波括弧と文字列の外の >）まで
+    let i = m.index + m[0].length;
+    let depth = 0;
+    let quote: string | null = null;
+    for (; i < code.length; i++) {
+      const c = code[i];
+      if (quote) {
+        if (c === "\\") i++;
+        else if (c === quote) quote = null;
+      } else if (c === '"' || c === "'" || c === "`") quote = c;
+      else if (c === "{") depth++;
+      else if (c === "}") depth--;
+      else if (c === ">" && depth === 0) break;
+    }
+    const attrs = code.slice(m.index, i);
+    const at = attrs.search(/\sclassName=/);
+    if (at < 0) continue;
+    // className= の値（"…" か {…}）
+    let j = attrs.indexOf("=", at) + 1;
+    let end = j;
+    if (attrs[j] === '"') end = attrs.indexOf('"', j + 1) + 1;
+    else {
+      let d = 0;
+      for (; end < attrs.length; end++) {
+        if (attrs[end] === "{") d++;
+        else if (attrs[end] === "}" && --d === 0) break;
+      }
+      end++;
+    }
+    out.push({ tag: m[1], classes: stringLiterals(attrs.slice(j, end)).flatMap((l) => l.split(/\s+/).filter(Boolean)) });
+  }
+  return out;
+}
+
 const token = (block: string, name: string): string => {
   const m = new RegExp(`--${name}:\\s*(#[0-9a-fA-F]{6})`).exec(block);
   if (!m) throw new Error(`--${name} not found`);
@@ -113,12 +191,12 @@ describe("design tokens (styles.css)", () => {
     expect(px("screen")).toBeGreaterThan(px("title"));
     expect(px("title")).toBeGreaterThan(px("body"));
     expect(px("body")).toBeGreaterThan(px("caption"));
-    // @theme inline の色は、どれもどこかで使う（bg-x / text-x / fill-x などのユーティリティ）
+    // @theme inline の色は、どれもどこかで使う（bg-x / text-x / fill-x などのユーティリティ。コメントの中の語は数えない）
     const inline = css.slice(css.indexOf("@theme inline"));
-    const all = sources.map(([, src]) => src).join("\n");
+    const used = new Set(sources.flatMap(([, src]) => classTokens(src)).map((c) => utility(c).replace(/\/\d+$/, "")));
     const unused = [...inline.matchAll(/--color-([a-z0-9-]+):/g)]
       .map((m) => m[1])
-      .filter((name) => !new RegExp(`(?:bg|text|fill|stroke|outline|accent|caret)-${name}(?![\\w-])`).test(all));
+      .filter((name) => !["bg", "text", "fill", "stroke", "outline", "accent", "caret"].some((u) => used.has(`${u}-${name}`)));
     expect(unused).toEqual([]);
   });
 });
@@ -149,6 +227,18 @@ describe("screen layout (styles/screen.css)", () => {
     expect(rule(screen, ".swap-btn")).toContain("z-index: 1;");
   });
 
+  it("keeps the editor header at a fixed height, so the toast offset (--toast-top) never covers the tabs", () => {
+    // 題も題の下の行も折り返さない（長いブランチ名は GitBadge の compact で省略する）
+    expect(rule(screen, ".topbar-title")).toContain("white-space: nowrap;");
+    expect(rule(screen, ".topbar-sub")).toContain("flex-wrap: nowrap;");
+    expect(rule(screen, ".topbar-sub")).toMatch(/min-height: /);
+    expect(read("components/GitBadge.tsx")).toMatch(/compact \? "flex-nowrap" : "flex-wrap"/);
+    // 内訳はコメントに書いた値（ヘッダ 113 / キーボード表示中 52 / 2 ペイン 57、+ 8）
+    expect(screen).toContain("+ 113px + 8px");
+    expect(screen).toContain("+ 52px + 8px");
+    expect(screen).toContain("+ 57px + 8px");
+  });
+
   it("puts the editor and the toolbar on the same panel", () => {
     expect(rule(screen, ".pane-edit")).toContain("@apply surface-card");
     expect(rule(screen, ".editor-wrap")).toContain("@apply surface-card");
@@ -160,9 +250,7 @@ describe("screen layout (styles/screen.css)", () => {
     for (const m of screen.matchAll(/([^{}]*)\{([^}]*)\}/g)) {
       if (/\.view-tabs|\.tab\b/.test(m[1])) expect(m[2], m[1]).not.toMatch(/display:/);
     }
-    const editor = sources.find(([f]) => f.endsWith("EditorScreen.tsx"))![1];
-    expect(editor).toContain('cn("tab", !wide && "kb:flex-auto kb:text-caption")');
-    expect(editor).toMatch(/<TabsList className="view-tabs"/);
+    // タブの文字を caption にするのは TabsTrigger の kbCompact（描画した結果は EditorScreen.test.tsx で確かめる）
   });
 
   it("while the keyboard is shown (one-pane), hides the title but keeps ‹ and the tabs on one row", () => {
@@ -220,33 +308,66 @@ describe("CodeMirror (styles/codemirror.css)", () => {
   });
 });
 
-describe("design rules (docs: scratchpad design-system.md の「使い分けの規則」)", () => {
+describe("design rules (docs/design-system.md の「使い分けの規則」)", () => {
   const ui = sources.filter(([f]) => f.startsWith("components/ui/"));
   const screens = sources.filter(([f]) => !f.startsWith("components/ui/"));
-  // クラス名らしい語（className の文字列・cva の中）
-  const classes = (src: string) => src.match(/[\w:!\-[\]().%/,&>+=*#]+/g) ?? [];
 
-  it("uses no arbitrary values for text, radius, color, shadow or spacing (except the safe-area calc)", () => {
+  it("has the rules document in the repository", () => {
+    const doc = read("../../docs/design-system.md");
+    expect(doc).toContain("## 使い分けの規則");
+    expect(css).toContain("docs/design-system.md");
+  });
+
+  it("finds class names in string literals only, after removing comments (the scanner this file relies on)", () => {
+    const src = `// bg-commented
+      /* rounded-commented */
+      const a = "hover:bg-x! !shadow-y";
+      <Button className={cn(\`p-3 \${x ? "text-caption" : ""}\`, "[background:red]")} />
+      <div className="text-body">{/* font-bold */}</div>`;
+    expect(classTokens(src).map(utility)).toEqual(["bg-x", "shadow-y", "p-3", "text-caption", "[background:red]", "text-body"]);
+    expect(componentClassNames(src)).toEqual([{ tag: "Button", classes: ["p-3", "text-caption", "[background:red]"] }]);
+    expect(utility("[:is([data-slot=a],[data-slot=b])+&]:pt-0")).toBe("pt-0");
+    expect(utility("-mx-4")).toBe("mx-4");
+  });
+
+  it("uses no arbitrary values for text, radius, color, shadow, padding, margin or gap (sizes, max-h and grid templates may; the safe-area calc is allowed)", () => {
     for (const [file, src] of sources) {
-      const bad = (src.match(/(?<![\w-])-?(text|rounded(-[trblse]{1,2})?|bg|shadow|outline|p[xytrblse]?|m[xytrblse]?|gap(-[xy])?|space-[xy])-\[[^\]]*\]/g) ?? []).filter(
-        (c) => !/env\(/.test(c),
-      );
+      const bad = classTokens(src)
+        .map(utility)
+        .filter((c) => /^(text|rounded(-[trblse]{1,2})?|bg|shadow|outline|p[xytrblse]?|m[xytrblse]?|gap(-[xy])?|space-[xy])-\[/.test(c) && !/env\(/.test(c));
       expect(bad, file).toEqual([]);
     }
   });
 
   it("keeps surfaces, radii, shadows and weights inside components/ui (screens only place and size the parts)", () => {
     for (const [file, src] of screens) {
-      const bad = classes(src).filter((c) => /(^|:)(bg|rounded|shadow)-[a-z0-9]/.test(c) || /(^|:)font-bold$/.test(c));
+      const bad = classTokens(src)
+        .map(utility)
+        .filter((c) => /^(bg|rounded|shadow|surface)(-|$)/.test(c) || c === "font-bold" || /^\[[a-z-]+:/.test(c));
       expect(bad, file).toEqual([]);
+      // style 属性で地・角丸・影・文字・余白を書かない
+      for (const m of stripComments(src).matchAll(/style=\{\{([\s\S]*?)\}\}/g)) {
+        expect(m[1], file).not.toMatch(/\b(background|color|border|borderRadius|boxShadow|font\w*|padding\w*)\s*:/);
+      }
     }
-    for (const [file, src] of ui) expect(src, file).not.toMatch(/font-bold/);
+    for (const [file, src] of ui) expect(classTokens(src).map(utility), file).not.toContain("font-bold");
   });
 
-  it("uses the spacing scale 4 / 8 / 12 / 16 / 24 / 32 (+2 inside a line, 44 for the hit area)", () => {
+  it("does not override the text size, weight or padding of a part through className (screens may set text roles on plain elements)", () => {
+    for (const [file, src] of screens) {
+      for (const { tag, classes } of componentClassNames(src)) {
+        const bad = classes.map(utility).filter((c) => /^(text-(caption|body|title|screen|input)|font-(semibold|medium|normal|bold)|p[xytrblse]?-)/.test(c));
+        expect(bad, `${file} <${tag}>`).toEqual([]);
+      }
+    }
+  });
+
+  it("uses the spacing scale 4 / 8 / 12 / 16 / 24 / 32 (+2 inside a line, 44 for the hit area) for padding, margin and gap (not for inset, size or translate)", () => {
     const allowed = new Set(["0", "0.5", "1", "2", "3", "4", "6", "8", "11"]);
     for (const [file, src] of sources) {
-      const used = [...src.matchAll(/(?<![\w-])-?(?:p[xytrblse]?|m[xytrblse]?|gap(?:-[xy])?)-(\d+(?:\.\d+)?)(?![\w.])/g)].map((m) => m[1]);
+      const used = classTokens(src)
+        .map(utility)
+        .flatMap((c) => /^(?:p[xytrblse]?|m[xytrblse]?|gap(?:-[xy])?)-(\d+(?:\.\d+)?)$/.exec(c)?.[1] ?? []);
       expect(used.filter((v) => !allowed.has(v)), file).toEqual([]);
     }
     for (const [name, text] of [["screen.css", screen], ["codemirror.css", cm]] as const) {
@@ -256,9 +377,9 @@ describe("design rules (docs: scratchpad design-system.md の「使い分けの�
     }
   });
 
-  it("sets font sizes in the CSS only from the text tokens (the editor uses the input size)", () => {
-    for (const [name, text] of [["screen.css", screen], ["codemirror.css", cm]] as const) {
-      for (const m of text.matchAll(/font-size:\s*([^;]+);/g)) expect(m[1], name).toMatch(/^(var\(--text-(caption|body|title|screen)\)|16px)$/);
+  it("sets font sizes in the CSS only from the text tokens (the editor and inputs use the input size)", () => {
+    for (const [name, text] of [["styles.css", css.slice(css.indexOf("@layer base"))], ["screen.css", screen], ["codemirror.css", cm]] as const) {
+      for (const m of text.matchAll(/font-size:\s*([^;]+);/g)) expect(m[1], name).toMatch(/^var\(--text-(caption|body|title|screen|input)\)$/);
     }
   });
 

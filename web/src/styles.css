@@ -1,5 +1,5 @@
 /* デザインシステム（shadcn/ui の Base UI 版の作り方 + Tailwind CSS v4）。部品は components/ui/ にある。
-   落ち着いたシンプルな見た目。スマホ優先（spec 4.2）。使い分けの規則（styles.node.test.ts で検査する）:
+   落ち着いたシンプルな見た目。スマホ優先（spec 4.2）。使い分けの規則の全文は docs/design-system.md（✓ のものは styles.node.test.ts で検査する）。要約:
    - 文字は役割で 4 段 + 入力: screen（画面の題）> title（シート・ダイアログの題）> body（本文・ボタン・行の題）> caption（補助）、
      入力欄とエディタだけ input（16px）。見出しの太さは semibold だけ
    - 角丸は面の段で決まる: panel 16（背景の上の面）/ box 10（面の上の箱）/ float 20（浮く面）/ pill（タブ・バッジ・チップ）
@@ -13,6 +13,8 @@
    エディタのフォーカスは outline ではなく、カーソルと現在行の強調で示す（フォーカスが無い間は強調を消す） */
 
 @import "tailwindcss";
+/* テストの中の文字列（検査の例に書いたクラス名）からユーティリティを作らない */
+@source not "./**/*.test.{ts,tsx}";
 /* 画面の骨組み（2 ペイン・入れ替え・キーボード表示中の段・safe-area）。data 属性の組み合わせが多いので CSS で書く */
 @import "./styles/screen.css" layer(components);
 /* CodeMirror の上書き。CodeMirror は自分の CSS を @layer の外に入れるので、こちらも外に置く（中だと負ける） */
@@ -228,7 +230,8 @@
   --box-2-press: var(--popover-press);
 }
 
-/* 箱の中（一覧の行の中身・通知の中身）。箱の上に置くものは、箱の中の箱の地にする */
+/* 箱の中（一覧の行の中身・通知の中身）。箱の上に置くものは、箱の中の箱の地にする。
+   2 段まで（面 → 箱 → 箱の中の箱）。--box-2 の先は無いので、box-inside の中でさらに box-inside にしても段は変わらない */
 @utility box-inside {
   --box: var(--box-2);
   --box-press: var(--box-2-press);
@@ -245,7 +248,7 @@
     height: 100%;
     background: var(--background);
     color: var(--foreground);
-    font-size: 15px;
+    font-size: var(--text-body);
     line-height: 1.5;
   }
 
@@ -260,7 +263,7 @@
   input,
   select,
   textarea {
-    font-size: 16px;
+    font-size: var(--text-input);
   }
 
   button,

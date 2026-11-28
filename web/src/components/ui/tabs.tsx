@@ -17,14 +17,22 @@ export function TabsList({ className, ...props }: ComponentProps<"nav">) {
   return <nav data-slot="tabs-list" className={cn(track, className)} {...props} />;
 }
 
+// kbCompact: キーボード表示中に「‹」と同じ段へ並ぶとき（1 ペインの編集画面）。文字を caption にし、幅は文字の長さに応じて分ける
 export function TabsTrigger({
   className,
   active,
+  kbCompact = false,
   children,
   ...props
-}: Omit<ComponentProps<"button">, "children"> & { active: boolean; children: ReactNode }) {
+}: Omit<ComponentProps<"button">, "children"> & { active: boolean; kbCompact?: boolean; children: ReactNode }) {
   return (
-    <button data-slot="tabs-trigger" type="button" aria-pressed={active} className={cn(trigger, "flex-1 px-0.5", className)} {...props}>
+    <button
+      data-slot="tabs-trigger"
+      type="button"
+      aria-pressed={active}
+      className={cn(trigger, "flex-1 px-0.5", kbCompact && "kb:flex-auto kb:text-caption", className)}
+      {...props}
+    >
       {/* 省略は中の文字で行う（ボタンに overflow を付けると、押せる範囲を広げる ::after が切られる） */}
       <span className="tab-label block truncate">{children}</span>
     </button>

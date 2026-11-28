@@ -491,11 +491,11 @@ export function EditorScreen({ route }: { route: EditRoute }) {
                 // 記事以外のファイルを開いた後、記事のファイルへ戻る
                 // 見た目は小さいピルのまま、押せる範囲を 44px 近くまで広げる
                 <BadgeButton
-                  className="article-pill"
+                  className="article-pill min-w-0"
                   onClick={() => navigate({ ...routeRef.current, file: article })}
                   aria-label={`記事 ${articleName.name} のファイルへ戻る`}
                 >
-                  記事: {articleName.name}
+                  <span className="truncate">記事: {articleName.name}</span>
                 </BadgeButton>
               )}
               {git && <GitBadge git={git} compact />}
@@ -527,7 +527,8 @@ export function EditorScreen({ route }: { route: EditRoute }) {
             <TabsTrigger
               key={t}
               // キーボード表示中（1 ペイン）は「‹」と同じ段に並ぶので、文字を caption にし、幅は文字の長さに応じて分ける（320 幅でも省略しない）
-              className={cn("tab", !wide && "kb:flex-auto kb:text-caption")}
+              className="tab"
+              kbCompact={!wide}
               active={(wide ? sideTab : tab) === t}
               onClick={() => setTab(t)}
             >

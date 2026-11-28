@@ -25,16 +25,19 @@ export const alertVariants = cva("rounded-box px-3 wrap-anywhere", {
   defaultVariants: { variant: "default", size: "md", inset: "pane" },
 });
 
-export type AlertProps = Omit<ComponentProps<"div">, "children"> & VariantProps<typeof alertVariants> & { children: ReactNode; action?: ReactNode };
+export type AlertProps = Omit<ComponentProps<"div">, "children" | "ref"> &
+  VariantProps<typeof alertVariants> & { children: ReactNode; action?: ReactNode; as?: "div" | "span" };
 
-// 文 + 任意の操作 1 つ（文の下に置く）
-export function Alert({ className, variant, size, inset, action, children, ...props }: AlertProps) {
+// 文 + 任意の操作 1 つ（文の下に置く）。操作の強さは secondary（画面の主の操作と並べない）。
+// 文の言い回しに合わせて primary にしてよいのは、その通知の操作が画面で唯一の操作のときだけ（アップロード後の「挿入」）。
+// as="span": 一覧の行（ListItemContent は span）の中に置くとき
+export function Alert({ className, variant, size, inset, action, as: Tag = "div", children, ...props }: AlertProps) {
   return (
-    <div data-slot="alert" className={cn(alertVariants({ variant, size, inset }), className)} {...props}>
-      <div className="box-inside flex flex-col items-start gap-2">
-        <div className="self-stretch">{children}</div>
+    <Tag data-slot="alert" className={cn(alertVariants({ variant, size, inset }), Tag === "span" && "block", className)} {...props}>
+      <Tag className="box-inside flex flex-col items-start gap-2">
+        <Tag className="block self-stretch">{children}</Tag>
         {action}
-      </div>
-    </div>
+      </Tag>
+    </Tag>
   );
 }

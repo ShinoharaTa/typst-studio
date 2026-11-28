@@ -46,7 +46,17 @@ export function ProjectList() {
           </Alert>
         )}
         {list === null && !error && <EmptyState>読み込み中…</EmptyState>}
-        {list?.length === 0 && <EmptyState>プロジェクトがありません</EmptyState>}
+        {list?.length === 0 && (
+          <EmptyState
+            description={
+              <>
+                <code className="font-mono wrap-anywhere">$TYPST_STUDIO_HOME/projects/</code> に clone すると出ます（scripts/add-project.sh）
+              </>
+            }
+          >
+            プロジェクトがありません
+          </EmptyState>
+        )}
         {list && <ContinueCard projects={list.map((p) => p.name)} />}
         <List>
           {list?.map((p) => (
@@ -56,7 +66,7 @@ export function ProjectList() {
                   <ListItemTitle>{p.name}</ListItemTitle>
                   <GitBadge git={p} />
                   {p.error && (
-                    <Alert variant="destructive" size="sm" inset="none" className="self-stretch">
+                    <Alert as="span" variant="destructive" size="sm" inset="none" className="self-stretch">
                       設定エラー: {p.error}
                     </Alert>
                   )}

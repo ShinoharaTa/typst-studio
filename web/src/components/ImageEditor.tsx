@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type RefObject } from "react";
 import { toast } from "sonner";
 import { api, ApiError } from "../api/client";
 import type { ImageCall, ImageSet } from "../api/types";
@@ -8,6 +8,7 @@ import { CornerDownLeft } from "lucide-react";
 import { Alert } from "./ui/alert";
 import { Button } from "./ui/button";
 import { Field, FieldDescription, FieldError, FieldLabel, FieldLegend, FieldSet, Input, Slider } from "./ui/input";
+import { SheetFooter } from "./ui/sheet";
 import { SegmentGroup, SegmentItem } from "./ui/tabs";
 import { Thumb } from "./ui/thumb";
 
@@ -64,9 +65,8 @@ function buildSet(c: ImageCall, d: Draft): ImageSet | null {
   return set;
 }
 
-const EDITOR = "flex flex-col gap-6";
-// 操作は末尾に右寄せ。主の操作（適用）を右端に置く。「ソースへ」は補助なので左端に地なしで置く
-const ACTIONS = "flex flex-wrap items-center justify-end gap-2";
+// 欄どうしは 16px。操作の段はシートの下端に固定する（SheetFooter。主の操作の適用を右端、「ソースへ」は左端に地なし）
+const EDITOR = "flex flex-col gap-4";
 
 export function ImageEditor(props: {
   project: string;
@@ -84,6 +84,7 @@ export function ImageEditor(props: {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [followError, setFollowError] = useState<string | null>(null);
   const previewed = useRef(false);
+  const heightHint = useId();
 
   // プレビューから開いたときは rev が無いので、一覧を読み直して同じ呼び出しを探す
   useEffect(() => {
@@ -222,14 +223,16 @@ export function ImageEditor(props: {
 
   if (!call.editable) {
     return (
-      <div className={EDITOR}>
-        {head}
-        <Alert inset="none">編集不可（第 1 引数がリテラルでない、またはテンプレート内の画像）</Alert>
-        <div className={ACTIONS}>
+      <>
+        <div className={EDITOR}>
+          {head}
+          <Alert inset="none">編集不可（第 1 引数がリテラルでない、またはテンプレート内の画像）</Alert>
+        </div>
+        <SheetFooter>
           {sourceButton}
           <Button onClick={() => props.onDone()}>閉じる</Button>
-        </div>
-      </div>
+        </SheetFooter>
+      </>
     );
   }
 
@@ -238,93 +241,98 @@ export function ImageEditor(props: {
   const heightInvalid = draft.height.trim() !== "" && !isValidLength(draft.height.trim());
 
   return (
-    <div className={EDITOR}>
-      {head}
-      {loadError && (
-        <Alert variant="destructive" inset="none">
-          {loadError}
-        </Alert>
-      )}
-      {followError && (
-        <Alert variant="destructive" inset="none">
-          {followError}
-        </Alert>
-      )}
+    <>
+      <div className={EDITOR}>
+        {head}
+        {loadError && (
+          <Alert variant="destructive" inset="none">
+            {loadError}
+          </Alert>
+        )}
+        {followError && (
+          <Alert variant="destructive" inset="none">
+            {followError}
+          </Alert>
+        )}
 
-      <FieldSet>
-        <FieldLegend>幅（width）</FieldLegend>
-        <SegmentGroup aria-label="単位">
-          {(["%", "mm"] as const).map((u) => (
-            <SegmentItem
-              key={u}
-              pressed={draft.widthOn && draft.unit === u}
-              onClick={() => {
-                // 単位を変えるときは、分かる範囲で同じ大きさに換算する
-                const v = u === "mm" && mm !== null ? Math.round(mm) : draft.unit === u ? draft.value : u === "%" ? 100 : 80;
-                update({ widthOn: true, unit: u, value: v, valueText: String(v) });
-              }}
-            >
-              {u}
+        <FieldSet>
+          <FieldLegend>幅（width）</FieldLegend>
+          <SegmentGroup aria-label="単位">
+            {(["%", "mm"] as const).map((u) => (
+              <SegmentItem
+                key={u}
+                pressed={draft.widthOn && draft.unit === u}
+                onClick={() => {
+                  // 単位を変えるときは、分かる範囲で同じ大きさに換算する
+                  const v = u === "mm" && mm !== null ? Math.round(mm) : draft.unit === u ? draft.value : u === "%" ? 100 : 80;
+                  update({ widthOn: true, unit: u, value: v, valueText: String(v) });
+                }}
+              >
+                {u}
+              </SegmentItem>
+            ))}
+            <SegmentItem pressed={!draft.widthOn} onClick={() => update({ widthOn: false })}>
+              指定なし
             </SegmentItem>
-          ))}
-          <SegmentItem pressed={!draft.widthOn} onClick={() => update({ widthOn: false })}>
-            指定なし
-          </SegmentItem>
-        </SegmentGroup>
-        {draft.widthOn && (
-          <div className="flex items-center gap-3">
-            {sliderUnit && (
-              <Slider
-                min={SLIDER[sliderUnit].min}
-                max={SLIDER[sliderUnit].max}
-                step={SLIDER[sliderUnit].step}
-                value={draft.value}
-                onChange={(e) => update({ value: Number(e.target.value), valueText: e.target.value })}
-                aria-label="幅"
-              />
-            )}
-            <label className="flex flex-none items-center gap-2">
-              <Input
-                type="number"
-                className="w-22"
-                inputMode="decimal"
-                min={0}
-                step="any"
-                value={draft.valueText}
-                onChange={(e) => update({ value: Number(e.target.value), valueText: e.target.value })}
-                aria-label="幅の数値"
-              />
-              <span>{draft.unit}</span>
-            </label>
-          </div>
-        )}
-        {draft.widthOn && draft.unit !== "%" && mm !== null && draft.unit !== "mm" && (
-          <FieldDescription>≒ {Math.round(mm * 10) / 10} mm</FieldDescription>
-        )}
-      </FieldSet>
+          </SegmentGroup>
+          {draft.widthOn && (
+            <div className="flex items-center gap-3">
+              {sliderUnit && (
+                <Slider
+                  min={SLIDER[sliderUnit].min}
+                  max={SLIDER[sliderUnit].max}
+                  step={SLIDER[sliderUnit].step}
+                  value={draft.value}
+                  onChange={(e) => update({ value: Number(e.target.value), valueText: e.target.value })}
+                  aria-label="幅"
+                />
+              )}
+              <label className="flex flex-none items-center gap-2">
+                <Input
+                  type="number"
+                  className="w-22"
+                  inputMode="decimal"
+                  min={0}
+                  step="any"
+                  value={draft.valueText}
+                  onChange={(e) => update({ value: Number(e.target.value), valueText: e.target.value })}
+                  aria-label="幅の数値"
+                />
+                <span>{draft.unit}</span>
+              </label>
+            </div>
+          )}
+          {draft.widthOn && draft.unit !== "%" && mm !== null && draft.unit !== "mm" && (
+            <FieldDescription>≒ {Math.round(mm * 10) / 10} mm</FieldDescription>
+          )}
+        </FieldSet>
 
-      <Field>
-        <FieldLabel>高さ（height）</FieldLabel>
-        <Input
-          aria-invalid={heightInvalid}
-          value={draft.height}
-          onChange={(e) => update({ height: e.target.value })}
-          autoCapitalize="off"
-          autoCorrect="off"
-        />
-        {heightInvalid ? (
-          <FieldError>数値 + 単位（% mm cm pt em in）で書いてください</FieldError>
-        ) : (
-          <FieldDescription>例: 8em / 40mm。空欄で指定なし</FieldDescription>
-        )}
-      </Field>
+        {/* 補足・エラーはラベルの外に置き、aria-describedby で欄に結びつける（欄の名前に混ぜない） */}
+        <div className="flex flex-col gap-2">
+          <Field>
+            <FieldLabel>高さ（height）</FieldLabel>
+            <Input
+              aria-invalid={heightInvalid}
+              aria-describedby={heightHint}
+              value={draft.height}
+              onChange={(e) => update({ height: e.target.value })}
+              autoCapitalize="off"
+              autoCorrect="off"
+            />
+          </Field>
+          {heightInvalid ? (
+            <FieldError id={heightHint}>数値 + 単位（% mm cm pt em in）で書いてください</FieldError>
+          ) : (
+            <FieldDescription id={heightHint}>例: 8em / 40mm。空欄で指定なし</FieldDescription>
+          )}
+        </div>
 
-      <Field>
-        <FieldLabel>代替テキスト（alt）</FieldLabel>
-        <Input value={draft.alt} onChange={(e) => update({ alt: e.target.value })} />
-      </Field>
-
-      <div className={ACTIONS}>
+        <Field>
+          <FieldLabel>代替テキスト（alt）</FieldLabel>
+          <Input value={draft.alt} onChange={(e) => update({ alt: e.target.value })} />
+        </Field>
+      </div>
+      <SheetFooter>
         {sourceButton}
         <Button onClick={() => void cancel()} disabled={busy}>
           取り消し
@@ -332,7 +340,7 @@ export function ImageEditor(props: {
         <Button variant="primary" onClick={() => void apply()} disabled={busy || !set || !rev || Object.keys(set).length === 0}>
           適用
         </Button>
-      </div>
-    </div>
+      </SheetFooter>
+    </>
   );
 }

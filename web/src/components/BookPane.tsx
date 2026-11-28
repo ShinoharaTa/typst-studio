@@ -92,9 +92,10 @@ export function BookPane(props: {
   const onDiagnostics = props.onDiagnostics;
   useEffect(() => onDiagnostics(diags), [diags, onDiagnostics]);
 
-  // ビルドは本タブの主の操作（primary）。まだビルドされていないときは PDF の台の中央にも出す
-  const buildButton = (
-    <Button variant="primary" onClick={() => void build()} disabled={!profile}>
+  // ビルドは本タブの主の操作（primary）。まだビルドされていないときは PDF の台の中央にも出す。
+  // 台の中央のものは secondary（同じ画面に primary を 2 つ置かない）
+  const buildButton = (variant: "primary" | "secondary") => (
+    <Button variant={variant} onClick={() => void build()} disabled={!profile}>
       {status?.state === "running" ? "ビルド中…" : status?.state === "queued" ? "待ち 1 件" : "ビルド"}
     </Button>
   );
@@ -116,7 +117,7 @@ export function BookPane(props: {
             </option>
           ))}
         </NativeSelect>
-        {buildButton}
+        {buildButton("primary")}
       </PanelBar>
 
       <PanelBar className="book-status flex-nowrap">
@@ -159,7 +160,7 @@ export function BookPane(props: {
         url={success?.pdfUrl ?? null}
         active={props.active}
         downloadUrl={success?.pdfUrl ?? null}
-        empty={status?.state === "running" || status?.state === "queued" ? undefined : buildButton}
+        empty={status?.state === "running" || status?.state === "queued" ? undefined : buildButton("secondary")}
       />
     </div>
   );

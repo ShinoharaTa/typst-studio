@@ -4,7 +4,7 @@ import { api } from "../api/client";
 import type { ImageCall, ImageList, UploadResult } from "../api/types";
 import { useStudioEvent } from "../lib/hooks";
 import type { ImageTarget } from "./ImageEditor";
-import { Upload } from "lucide-react";
+import { CornerDownLeft, Upload } from "lucide-react";
 import { Alert } from "./ui/alert";
 import { Button } from "./ui/button";
 import { EmptyState } from "./ui/empty-state";
@@ -114,6 +114,7 @@ export function ImagesPane(props: {
               onClick={() => (c.editable ? props.onOpen({ call: c, rev: list.rev }) : props.onGoto(c))}
               actions={
                 <Button variant="ghost" size="sm" onClick={() => props.onGoto(c)} aria-label={`${c.line} 行目のソースへ`}>
+                  <CornerDownLeft />
                   {c.line} 行
                 </Button>
               }

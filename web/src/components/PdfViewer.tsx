@@ -10,7 +10,8 @@ import { PanelBar, Stage, StageSurface } from "./ui/panel";
 
 // pdf.js で本全体の PDF を出す。url が変わったら、位置と拡大率を保ったまま裏で差し替える。
 // active になるまで pdf.js も PDF も読まない。隠れている間は差し替えず、出たときに最新へ差し替える
-// empty: まだビルドされていないときに台の中央に出す次の操作（ビルドのボタン）
+// empty: まだビルドされていないときに台の中央に出す次の操作（ビルドのボタン。同じ画面の主の操作と重ねないので secondary）
+// ページ番号・拡大縮小の段は、PDF があるときだけ出す
 export function PdfViewer({
   url,
   active,
@@ -75,31 +76,33 @@ export function PdfViewer({
   };
 
   return (
-    // 段はペインの段の並びにそのまま続ける（contents。前の段との間の余白を詰められるように）
-    <div className="contents">
+    // 段はペインの段の並びにそのまま続ける（Fragment。PanelBar は前の兄弟を見て上の余白を詰める）
+    <>
       {/* 操作部はペインの上端にまとめる（本タブの上の段: プロファイル・ビルド、状態に続けて置く。PDF の台より上）。
           下端に置くのは、キーボードの上に出る編集のツールバーだけ。拡大縮小は小さい地なしのボタンにして、ビルドを主にする */}
-      <PanelBar className="pdf-bar flex-nowrap">
-        <span className="mr-auto text-caption text-muted-foreground" aria-live="polite">
-          {page.total ? `${page.page} / ${page.total}` : "—"}
-          {loading && " ・ 読み込み中"}
-        </span>
-        {downloadUrl && (
-          <a className={buttonVariants({ variant: "ghost", size: "sm" })} href={downloadUrl} download>
-            <Download />
-            ダウンロード
-          </a>
-        )}
-        <Button variant="ghost" size="sm" icon onClick={() => changeZoom(stepZoom(zoom, -1))} aria-label="縮小">
-          <Minus />
-        </Button>
-        <Button variant="ghost" size="sm" onClick={() => changeZoom(1)} aria-label="幅に合わせる">
-          {Math.round(zoom * 100)}%
-        </Button>
-        <Button variant="ghost" size="sm" icon onClick={() => changeZoom(stepZoom(zoom, 1))} aria-label="拡大">
-          <Plus />
-        </Button>
-      </PanelBar>
+      {url && (
+        <PanelBar className="pdf-bar flex-nowrap">
+          <span className="mr-auto text-caption text-muted-foreground" aria-live="polite">
+            {page.total ? `${page.page} / ${page.total}` : "—"}
+            {loading && " ・ 読み込み中"}
+          </span>
+          {downloadUrl && (
+            <a className={buttonVariants({ variant: "ghost", size: "sm" })} href={downloadUrl} download>
+              <Download />
+              ダウンロード
+            </a>
+          )}
+          <Button variant="ghost" size="sm" icon onClick={() => changeZoom(stepZoom(zoom, -1))} aria-label="縮小">
+            <Minus />
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => changeZoom(1)} aria-label="幅に合わせる">
+            {Math.round(zoom * 100)}%
+          </Button>
+          <Button variant="ghost" size="sm" icon onClick={() => changeZoom(stepZoom(zoom, 1))} aria-label="拡大">
+            <Plus />
+          </Button>
+        </PanelBar>
+      )}
       <Stage>
         {/* PDF の台（パネルより沈んだ面） */}
         <StageSurface ref={scroller} />
@@ -114,6 +117,6 @@ export function PdfViewer({
           </Alert>
         )}
       </Stage>
-    </div>
+    </>
   );
 }
