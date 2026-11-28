@@ -1177,6 +1177,13 @@ code {
   color: var(--muted);
 }
 
+/* アップロードのバーは、一覧をスクロールしても上に残す */
+.images-pane .pane-bar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
 .images-pane .list {
   padding: 0 var(--sp-2) var(--sp-4);
 }
