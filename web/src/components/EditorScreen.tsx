@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "../api/client";
 import type { Diagnostic, ImageCall, Position, PreviewStatus } from "../api/types";
+import { articleContext, articleLabel, type ArticleCtx } from "../lib/article-label";
 import { DocSession, type DocSnapshot } from "../lib/doc-session";
 import { useMedia, usePageVisible, useStudioEvent } from "../lib/hooks";
 import { MemorySync } from "../lib/memory-sync";
@@ -43,6 +44,19 @@ export function EditorScreen({ route }: { route: EditRoute }) {
   const wide = useMedia("(min-width: 900px)");
   const pageVisible = usePageVisible();
   const git = useProjectGit(project);
+  // 記事の名前（ディレクトリ名）を出すために一覧を 1 回読む。読めるまでは親ディレクトリ名
+  const [articleCtx, setArticleCtx] = useState<ArticleCtx | undefined>(undefined);
+  useEffect(() => {
+    let cancelled = false;
+    api.articles(project).then(
+      (l) => !cancelled && setArticleCtx(articleContext(l.map((a) => a.path))),
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [project]);
+  const articleName = articleLabel(article, articleCtx);
   const editor = useRef<CodeEditorHandle>(null);
   const session = useRef<DocSession | null>(null);
   const [snap, setSnap] = useState<DocSnapshot>({ state: "clean", diskChanged: false, removed: false });
@@ -343,6 +357,7 @@ export function EditorScreen({ route }: { route: EditRoute }) {
           error={previewError}
           compile={compile}
           onStart={startPreview}
+          articleCtx={articleCtx}
         />
       </section>
       <section className="pane pane-book" data-active={shown("book")} aria-label="本">
@@ -378,10 +393,17 @@ export function EditorScreen({ route }: { route: EditRoute }) {
         </a>
         <div className="topbar-text">
           <h1 className="topbar-title" title={file}>
-            {fileName}
-            {file !== article && <span className="muted small"> （記事: {article.slice(article.lastIndexOf("/") + 1)}）</span>}
+            {file === article ? (
+              <>
+                {articleName.group.length > 0 && <span className="topbar-group">{articleName.group.join(" / ")} / </span>}
+                {articleName.name}
+              </>
+            ) : (
+              fileName
+            )}
           </h1>
           <div className="topbar-sub">
+            {file !== article && <span className="pill article-pill">記事: {articleName.name}</span>}
             {git && <GitBadge git={git} compact />}
             <span className={`save-state save-${snap.state}`}>{SAVE_LABEL[snap.state]}</span>
           </div>
@@ -413,7 +435,7 @@ export function EditorScreen({ route }: { route: EditRoute }) {
                 void gotoSource(j.path, j.start.line + 1, j.start.character + 1);
               }}
             >
-              ソースへ（{jumpLabel(jump)}）
+              ソースへ（{jumpLabel(jump, jump.path === article ? articleName.name : null)}）
             </button>
             <button type="button" className="chip chip-close" onClick={() => setJump(null)} aria-label="閉じる">
               ×
@@ -468,6 +490,7 @@ export function EditorScreen({ route }: { route: EditRoute }) {
   );
 }
 
-function jumpLabel(jump: Jump): string {
-  return `${jump.path.slice(jump.path.lastIndexOf("/") + 1)}:${jump.start.line + 1}`;
+// 記事のファイルなら記事の名前、それ以外はファイル名
+function jumpLabel(jump: Jump, article: string | null): string {
+  return `${article ?? jump.path.slice(jump.path.lastIndexOf("/") + 1)}:${jump.start.line + 1}`;
 }

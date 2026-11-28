@@ -1168,3 +1168,25 @@ code {
   width: 0.9em;
   height: 0.9em;
 }
+
+/* 記事一覧の見出し（記事の途中の階層） */
+.list-heading {
+  margin: 16px 16px 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.topbar-group {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+}
