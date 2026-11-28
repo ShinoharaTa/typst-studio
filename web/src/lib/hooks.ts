@@ -60,6 +60,7 @@ export function useKeyboardInset(): void {
         editing,
         innerHeight: window.innerHeight,
         screenHeight: window.screen?.availHeight,
+        finePointer: window.matchMedia?.("(pointer: fine)").matches ?? false,
       });
       root.toggleAttribute("data-kb", kb);
     };

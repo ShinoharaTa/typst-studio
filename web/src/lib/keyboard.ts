@@ -21,6 +21,8 @@ export interface ViewportSample {
   // 幅が変わった（回転・折りたたみ）ときに、キーボードが出たままでも最大を見積もるための値
   innerHeight?: number;
   screenHeight?: number;
+  // マウスなどの細かいポインタがある（PC。ソフトキーボードは出ない前提で、画面の高さからの見積もりを使わない）
+  finePointer?: boolean;
 }
 
 export class KeyboardDetector {
@@ -29,10 +31,14 @@ export class KeyboardDetector {
 
   update(s: ViewportSample): boolean {
     if (s.width !== this.width) {
-      // 回転・折りたたみで幅が変わった。覚えた最大は捨て、今の innerHeight と画面の高さから見積もり直す
-      // （キーボードを出したまま回転しても、閉じるまで待たずに分かるように）
+      const first = this.width === -1;
       this.width = s.width;
-      this.maxHeight = Math.max(s.innerHeight ?? 0, s.screenHeight ? s.screenHeight - BROWSER_UI_PX : 0);
+      const now = Math.max(s.innerHeight ?? 0, s.height + Math.max(0, s.inset));
+      // 回転・折りたたみで幅が変わった時点でフォーカスがあれば、キーボードが出たままかもしれないので
+      // 画面の高さからも見積もる（閉じるまで待たずに分かるように）。
+      // 最初の 1 回と PC（細かいポインタ）では使わない（全画面でないウィンドウを、キーボードと取り違える）
+      const estimate = !first && s.editing && !s.finePointer && s.screenHeight ? s.screenHeight - BROWSER_UI_PX : 0;
+      this.maxHeight = Math.max(now, estimate);
     }
     // キーボードが出ていないと分かっているとき（フォーカスが無い）の高さを最大に入れる
     if (!s.editing || s.inset <= IOS_INSET_PX) this.maxHeight = Math.max(this.maxHeight, s.height + Math.max(0, s.inset));

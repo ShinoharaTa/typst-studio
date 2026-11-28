@@ -45,6 +45,25 @@ describe("KeyboardDetector", () => {
     expect(e.update(s(915, 330, true, 0, { innerHeight: 330, screenHeight: 412 }))).toBe(false);
   });
 
+  it("does not use the screen estimate on the first sample (a window smaller than the screen)", () => {
+    const d = new KeyboardDetector();
+    // 幅 1000、高さ 700 のウィンドウ、画面 1040。エディタにフォーカスがあるだけ
+    expect(d.update(s(1000, 700, true, 0, { innerHeight: 700, screenHeight: 1040 }))).toBe(false);
+    expect(d.update(s(1000, 700, true, 0, { innerHeight: 700, screenHeight: 1040 }))).toBe(false);
+  });
+
+  it("does not use the screen estimate with a fine pointer or without focus at the width change", () => {
+    const pc = new KeyboardDetector();
+    pc.update(s(1000, 700, false, 0, { innerHeight: 700, screenHeight: 1040, finePointer: true }));
+    // ウィンドウの幅を変えた（フォーカスあり）
+    expect(pc.update(s(800, 700, true, 0, { innerHeight: 700, screenHeight: 1040, finePointer: true }))).toBe(false);
+    const phone = new KeyboardDetector();
+    phone.update(s(412, 860, false));
+    // フォーカスが無いまま回転した
+    expect(phone.update(s(915, 330, false, 0, { innerHeight: 330, screenHeight: 412 }))).toBe(false);
+    expect(phone.update(s(915, 330, true, 0, { innerHeight: 330, screenHeight: 412 }))).toBe(false);
+  });
+
   it("iOS: detects the keyboard from the inset, only while editing", () => {
     const d = new KeyboardDetector();
     expect(d.update(s(390, 844, false))).toBe(false);
