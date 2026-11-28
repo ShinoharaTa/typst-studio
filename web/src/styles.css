@@ -876,6 +876,7 @@ code {
   right: var(--sp-2);
   bottom: var(--sp-2);
   z-index: 3;
+  display: block;
   box-shadow: var(--shadow-float);
   padding: 6px var(--sp-3);
   min-height: var(--tap);
@@ -886,11 +887,6 @@ code {
   font-size: 0.85rem;
   text-align: left;
   overflow-wrap: anywhere;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
   cursor: pointer;
 }
 
@@ -899,11 +895,24 @@ code {
   color: var(--warn);
 }
 
+/* 2 行で切る（内側の要素で切る。外側で切ると余白に 3 行目がのぞく） */
+.line-diag-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
 .line-diag[data-expanded="true"] {
-  -webkit-line-clamp: unset;
-  line-clamp: none;
   max-height: 40dvh;
   overflow-y: auto;
+}
+
+.line-diag[data-expanded="true"] .line-diag-text {
+  -webkit-line-clamp: unset;
+  line-clamp: none;
+  overflow: visible;
 }
 
 /* 「元に戻す」と記号キーの間は、線ではなく余白で分ける */

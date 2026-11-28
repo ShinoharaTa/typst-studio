@@ -364,7 +364,7 @@ export function EditorScreen({ route }: { route: EditRoute }) {
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => setDiagExpanded((x) => !x)}
           >
-            {diagSummary(cursorDiags)}
+            <span className="line-diag-text">{diagSummary(cursorDiags)}</span>
           </button>
         )}
       </div>
