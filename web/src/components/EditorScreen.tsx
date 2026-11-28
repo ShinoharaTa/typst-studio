@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "../api/client";
 import type { Diagnostic, ImageCall, Position, PreviewStatus } from "../api/types";
@@ -324,6 +324,13 @@ export function EditorScreen({ route }: { route: EditRoute }) {
   const [cursorDiags, setCursorDiags] = useState<CursorDiag[]>([]);
   const [diagExpanded, setDiagExpanded] = useState(false);
   useEffect(() => setDiagExpanded(false), [cursorDiags]);
+  // 帯の高さ（＋すき間）。帯が出ている間だけ、エディタのスクロールの下側の余白に取る
+  const bandRef = useRef<HTMLButtonElement>(null);
+  const [bandInset, setBandInset] = useState(0);
+  useLayoutEffect(() => {
+    const el = bandRef.current;
+    setBandInset(cursorDiags.length > 0 && el ? el.offsetHeight + 16 : 0);
+  }, [cursorDiags, diagExpanded]);
   // ファイルを切り替えたら初期化する
   useEffect(() => setCursorDiags([]), [file]);
   const conflict = snap.state === "conflict";
@@ -351,12 +358,14 @@ export function EditorScreen({ route }: { route: EditRoute }) {
             scroll.schedule();
           }}
           onCursorDiagnostics={setCursorDiags}
+          bottomInset={bandInset}
           onSave={save}
         />
         {cursorDiags.length > 0 && (
           // カーソルのある行の診断（タッチにはホバーが無いので、lint の吹き出しの代わりに出す）。タップで全文。
           // エディタの上に重ねる（出入りでエディタの高さを変えない）
           <button
+            ref={bandRef}
             type="button"
             className={`line-diag ${cursorDiags[0].severity}`}
             data-expanded={diagExpanded}

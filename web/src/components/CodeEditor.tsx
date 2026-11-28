@@ -49,6 +49,12 @@ interface Props {
   diagnostics?: LineDiagnostic[];
   // 幅の狭い画面。lint の列を外し、診断のある行は行の地の色で示す（行番号は残す）
   compact?: boolean;
+  // エディタの下端に重ねたもの（診断の帯）の高さ。カーソルがその下に入らないように、スクロールの余白に取る
+  bottomInset?: number;
+}
+
+function marginsExt(bottom: number) {
+  return bottom > 0 ? EditorView.scrollMargins.of(() => ({ bottom })) : [];
 }
 
 // カーソルのある行に掛かる診断を、lint の状態から引く（編集で位置がずれても lint が追従している）
@@ -114,11 +120,13 @@ export const CodeEditor = forwardRef<CodeEditorHandle, Props>(function CodeEdito
     propsRef.current.onCursorDiagnostics?.(ds);
   };
   const gutter = useRef(new Compartment());
+  const margins = useRef(new Compartment());
 
   const extensions = () => [
     lineNumbers(),
     highlightActiveLineGutter(),
     gutter.current.of(propsRef.current.compact ? [] : lintGutter()),
+    margins.current.of(marginsExt(propsRef.current.bottomInset ?? 0)),
     lineMarks,
     history(),
     drawSelection(),
@@ -173,6 +181,19 @@ export const CodeEditor = forwardRef<CodeEditorHandle, Props>(function CodeEdito
   useEffect(() => {
     view.current?.dispatch({ effects: gutter.current.reconfigure(props.compact ? [] : lintGutter()) });
   }, [props.compact]);
+
+  useEffect(() => {
+    const v = view.current;
+    if (!v) return;
+    const bottom = props.bottomInset ?? 0;
+    // 余白が増えたら、カーソルを帯より上へ運ぶ
+    v.dispatch({
+      effects: [
+        margins.current.reconfigure(marginsExt(bottom)),
+        ...(bottom > 0 ? [EditorView.scrollIntoView(v.state.selection.main.head, { y: "nearest" })] : []),
+      ],
+    });
+  }, [props.bottomInset]);
 
   useImperativeHandle(
     ref,

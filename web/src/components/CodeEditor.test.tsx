@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { Text } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
 import { act, createRef } from "react";
 import { createRoot } from "react-dom/client";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -78,6 +79,24 @@ describe("CodeEditor line diagnostics", () => {
     expect(seen.at(-1)).toEqual([]);
     await act(async () => ref.current!.goto(4));
     expect(seen.at(-1)).toEqual(["e", "w"]);
+    await act(async () => root.unmount());
+  });
+
+  it("reserves a bottom scroll margin only while something covers the bottom of the editor", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const props = { onDocChange: () => undefined, onCursor: () => undefined, onSave: () => undefined };
+    const bottoms = () => {
+      const v = EditorView.findFromDOM(host.querySelector(".cm-editor") as HTMLElement)!;
+      return v.state.facet(EditorView.scrollMargins).map((f) => f(v)?.bottom ?? 0);
+    };
+    await act(async () => root.render(<CodeEditor {...props} bottomInset={0} />));
+    expect(bottoms().filter((b) => b > 0)).toEqual([]);
+    await act(async () => root.render(<CodeEditor {...props} bottomInset={72} />));
+    expect(bottoms()).toContain(72);
+    await act(async () => root.render(<CodeEditor {...props} bottomInset={0} />));
+    expect(bottoms().filter((b) => b > 0)).toEqual([]);
     await act(async () => root.unmount());
   });
 
