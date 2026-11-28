@@ -3,9 +3,12 @@ import { useCallback, useSyncExternalStore } from "react";
 // 端末ごとの設定（localStorage）。読めない・書けない環境でも、その画面の間は効く（メモリに持つ）
 
 const memory = new Map<string, string>();
+// 書き込みに失敗したキー。localStorage に残っている古い値より、メモリの値を優先する
+const unsaved = new Set<string>();
 const listeners = new Set<() => void>();
 
 export function readPref(key: string, fallback: string): string {
+  if (unsaved.has(key)) return memory.get(key) ?? fallback;
   try {
     const v = window.localStorage.getItem(key);
     if (v !== null) return v;
@@ -19,8 +22,10 @@ export function writePref(key: string, value: string): void {
   memory.set(key, value);
   try {
     window.localStorage.setItem(key, value);
+    unsaved.delete(key);
   } catch {
     // 保存できなくても、メモリの値で今の画面には効く
+    unsaved.add(key);
   }
   listeners.forEach((f) => f());
 }

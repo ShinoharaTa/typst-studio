@@ -26,4 +26,18 @@ describe("prefs", () => {
     writePref("typst-studio.broken", "y");
     expect(readPref("typst-studio.broken", "x")).toBe("y");
   });
+
+  it("prefers the in-memory value when setItem fails but an old value is still stored", () => {
+    window.localStorage.setItem("typst-studio.full", "old");
+    const set = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("QuotaExceededError");
+    });
+    writePref("typst-studio.full", "new");
+    expect(readPref("typst-studio.full", "x")).toBe("new");
+    // 書けるようになったら localStorage に戻る
+    set.mockRestore();
+    writePref("typst-studio.full", "newer");
+    expect(window.localStorage.getItem("typst-studio.full")).toBe("newer");
+    expect(readPref("typst-studio.full", "x")).toBe("newer");
+  });
 });
