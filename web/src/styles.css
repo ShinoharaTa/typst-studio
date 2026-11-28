@@ -466,6 +466,16 @@ code {
   border-right: 1px solid var(--border);
 }
 
+/* 左右の入れ替え。DOM の順は変えない（プレビューの iframe を読み込み直さない） */
+.editor-screen[data-wide="true"][data-swap="true"] .pane-edit {
+  order: 2;
+}
+
+.swap-btn {
+  flex: none;
+  margin-left: auto;
+}
+
 .side {
   display: flex;
   flex-direction: column;

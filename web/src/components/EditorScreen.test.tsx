@@ -20,6 +20,8 @@ let puts: Put[];
 let putReply: ((p: Put) => Response) | null;
 let root: Root | null;
 let host: HTMLDivElement;
+// 2 ペイン（min-width: 900px）として振る舞わせる
+let wideMode = false;
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -100,10 +102,12 @@ beforeEach(() => {
   files = { "a.typ": { content: "= A\n", rev: "ra" }, "b.typ": { content: "= B\n", rev: "rb" } };
   puts = [];
   putReply = null;
+  wideMode = false;
+  window.localStorage.clear();
   vi.stubGlobal("fetch", vi.fn(fakeFetch));
   vi.stubGlobal("WebSocket", FakeWebSocket);
   vi.stubGlobal("matchMedia", (q: string) => ({
-    matches: false,
+    matches: wideMode && q.includes("min-width: 900px"),
     media: q,
     addEventListener() {},
     removeEventListener() {},
@@ -235,6 +239,32 @@ describe("leaving the editor", () => {
     for (let i = 0; i < 10; i++) await tick();
     expect(host.querySelector(".cm-editor")).not.toBeNull();
     expect(window.location.hash).toBe("#/p/sample-book/edit/a.typ");
+  });
+
+  it("swaps the two panes with CSS order, keeping the panes mounted and remembering it", async () => {
+    wideMode = true;
+    await openEditor();
+    const screen = () => host.querySelector(".editor-screen") as HTMLElement;
+    const btn = () => host.querySelector<HTMLButtonElement>(".swap-btn");
+    const preview = host.querySelector(".pane-preview");
+    const editorDom = host.querySelector(".cm-editor");
+    expect(screen().dataset.swap).toBe("false");
+    await act(async () => btn()!.click());
+    expect(screen().dataset.swap).toBe("true");
+    expect(btn()!.getAttribute("aria-pressed")).toBe("true");
+    // DOM は作り直さない（プレビューの iframe やエディタの状態が残る）
+    expect(host.querySelector(".pane-preview")).toBe(preview);
+    expect(host.querySelector(".cm-editor")).toBe(editorDom);
+    expect(window.localStorage.getItem("typst-studio.paneOrder")).toBe("edit-right");
+    // 別の記事を開いても続く
+    await go("#/p/sample-book/edit/b.typ");
+    await until(() => !!host.querySelector(".cm-editor") && docText() === "= B\n", "b opened");
+    expect(screen().dataset.swap).toBe("true");
+  });
+
+  it("does not show the swap button in one-pane mode", async () => {
+    await openEditor();
+    expect(host.querySelector(".swap-btn")).toBeNull();
   });
 
   it("switching tabs does not save or block", async () => {

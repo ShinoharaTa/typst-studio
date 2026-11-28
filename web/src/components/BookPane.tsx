@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { api, NoMemoryError } from "../api/client";
 import type { BuildStatus, Diagnostic } from "../api/types";
 import { useStudioEvent } from "../lib/hooks";
+import { usePref } from "../lib/prefs";
 import { AutoBuild, isBuildInput } from "../lib/schedule";
 import { PdfViewer } from "./PdfViewer";
 
@@ -23,7 +24,9 @@ export function BookPane(props: {
   const [error, setError] = useState<string | null>(null);
   const profileRef = useRef(profile);
   profileRef.current = profile;
-  const [autoOn, setAutoOn] = useState(() => readAutoBuild());
+  // 自動ビルドのオン・オフ（端末ごと。読めなければオン）
+  const [autoPref, setAutoPref] = usePref("typst-studio.autoBuild", "on");
+  const autoOn = autoPref !== "off";
 
   useEffect(() => {
     api.profiles(project).then(
@@ -109,10 +112,7 @@ export function BookPane(props: {
           <input
             type="checkbox"
             checked={autoOn}
-            onChange={(e) => {
-              setAutoOn(e.target.checked);
-              writeAutoBuild(e.target.checked);
-            }}
+            onChange={(e) => setAutoPref(e.target.checked ? "on" : "off")}
           />
           自動ビルド
         </label>
@@ -157,23 +157,6 @@ export function BookPane(props: {
       <PdfViewer url={success?.pdfUrl ?? null} active={props.active} />
     </div>
   );
-}
-
-// 自動ビルドのオン・オフ（端末ごと。読めなければオン）
-const AUTO_KEY = "typst-studio.autoBuild";
-function readAutoBuild(): boolean {
-  try {
-    return window.localStorage.getItem(AUTO_KEY) !== "off";
-  } catch {
-    return true;
-  }
-}
-function writeAutoBuild(on: boolean): void {
-  try {
-    window.localStorage.setItem(AUTO_KEY, on ? "on" : "off");
-  } catch {
-    // 保存できなくても今の画面では効く
-  }
 }
 
 function mb(bytes: number): string {

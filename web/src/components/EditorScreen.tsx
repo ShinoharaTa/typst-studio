@@ -6,6 +6,7 @@ import { articleContext, articleLabel, type ArticleCtx } from "../lib/article-la
 import { DocSession, type DocSnapshot } from "../lib/doc-session";
 import { useMedia, usePageVisible, useStudioEvent } from "../lib/hooks";
 import { MemorySync } from "../lib/memory-sync";
+import { usePref } from "../lib/prefs";
 import { formatRoute, navigate, setLeaveGuard, type Route, type Tab } from "../lib/route";
 import { Debouncer } from "../lib/schedule";
 import { BookPane } from "./BookPane";
@@ -57,6 +58,9 @@ export function EditorScreen({ route }: { route: EditRoute }) {
     };
   }, [project]);
   const articleName = articleLabel(article, articleCtx);
+  // 2 ペインの左右（端末ごと）。DOM の順は変えず CSS の order で入れ替える（iframe を読み込み直さない）
+  const [paneOrder, setPaneOrder] = usePref("typst-studio.paneOrder", "edit-left");
+  const swapped = paneOrder === "edit-right";
   const editor = useRef<CodeEditorHandle>(null);
   const session = useRef<DocSession | null>(null);
   const [snap, setSnap] = useState<DocSnapshot>({ state: "clean", diskChanged: false, removed: false });
@@ -386,7 +390,7 @@ export function EditorScreen({ route }: { route: EditRoute }) {
   );
 
   return (
-    <div className="screen editor-screen" data-wide={wide}>
+    <div className="screen editor-screen" data-wide={wide} data-swap={swapped}>
       <header className="topbar">
         <a className="icon-btn" href={formatRoute({ view: "articles", project })} aria-label="記事一覧へ">
           ‹
@@ -408,6 +412,18 @@ export function EditorScreen({ route }: { route: EditRoute }) {
             <span className={`save-state save-${snap.state}`}>{SAVE_LABEL[snap.state]}</span>
           </div>
         </div>
+        {wide && (
+          // 両方のペインに効く操作なので、どちらのペインにも属さないヘッダに置く
+          <button
+            type="button"
+            className="btn swap-btn"
+            aria-label="編集とプレビューの左右を入れ替える"
+            aria-pressed={swapped}
+            onClick={() => setPaneOrder(swapped ? "edit-left" : "edit-right")}
+          >
+            ⇄ 入れ替え
+          </button>
+        )}
       </header>
 
       <div className="panes">
