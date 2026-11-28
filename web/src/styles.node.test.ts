@@ -16,7 +16,7 @@ const darkStart = css.indexOf("@media (prefers-color-scheme: dark)");
 const light = css.slice(0, darkStart);
 const dark = css.slice(darkStart, css.indexOf("\n}\n", darkStart));
 
-// 画面と部品のソース（テストを除く）
+// 画面と部品のソース（テストを除く）。ui/ の中が部品、外が画面
 const sources = (() => {
   const out: [string, string][] = [];
   const walk = (dir: string) => {
@@ -70,6 +70,23 @@ describe("design tokens (styles.css)", () => {
     }
   });
 
+  it("sets the floating surfaces (popover) apart from the panel and the background in light and dark, and keeps text readable on them", () => {
+    for (const block of [light, dark]) {
+      // 浮く面は、載る先（パネル・背景）と色で分かれる（影だけに頼らない）
+      expect(contrast(token(block, "popover"), token(block, "card"))).toBeGreaterThanOrEqual(1.08);
+      expect(contrast(token(block, "popover"), token(block, "background"))).toBeGreaterThanOrEqual(1.08);
+      expect(contrast(token(block, "popover-box"), token(block, "popover"))).toBeGreaterThanOrEqual(1.08);
+      for (const bg of ["popover", "popover-box"]) {
+        expect(contrast(token(block, "foreground"), token(block, bg)), bg).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(token(block, "muted-foreground"), token(block, bg)), bg).toBeGreaterThanOrEqual(4.5);
+      }
+      for (const fg of ["primary", "destructive", "warning"]) expect(contrast(token(block, fg), token(block, "popover")), fg).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(token(block, "destructive"), token(block, "destructive-press"))).toBeGreaterThanOrEqual(4.5);
+    }
+    // ダークで浮く面がパネルと同じ色にならない（以前は両方 card で境目が消えた）
+    expect(token(dark, "popover")).not.toBe(token(dark, "card"));
+  });
+
   it("sets the tabs apart on a track: the selected pill stands out in light and dark, and the labels stay readable", () => {
     for (const block of [light, dark]) {
       expect(contrast(token(block, "tab-on"), token(block, "tab-track"))).toBeGreaterThanOrEqual(1.3);
@@ -83,6 +100,26 @@ describe("design tokens (styles.css)", () => {
     expect(css).toMatch(/@theme \{\s*--color-\*: initial;/);
     expect(css).toContain("--spacing: 4px;");
     expect(css).toContain("@custom-variant kb (:root[data-kb] &);");
+    // ホバーはマウスなどの細かい指し示しがある端末だけ（タッチで押した後に色が残らないように）
+    expect(css).toMatch(/@custom-variant hover \{\s*@media \(hover: hover\) and \(pointer: fine\)/);
+  });
+
+  it("has 4 text roles + the input size, 3 radii + pill, and no unused colors", () => {
+    const theme = css.slice(css.indexOf("@theme {"), css.indexOf("@theme inline"));
+    expect([...theme.matchAll(/--text-([a-z]+):/g)].map((m) => m[1])).toEqual(["caption", "body", "title", "screen", "input"]);
+    expect([...theme.matchAll(/--radius-([a-z]+):/g)].map((m) => m[1])).toEqual(["box", "panel", "float", "pill"]);
+    // 序列: 画面の題 > 重なる面の題 > 入力 > 本文 > 補助
+    const px = (n: string) => Number(new RegExp(`--text-${n}: (\\d+)px`).exec(theme)![1]);
+    expect(px("screen")).toBeGreaterThan(px("title"));
+    expect(px("title")).toBeGreaterThan(px("body"));
+    expect(px("body")).toBeGreaterThan(px("caption"));
+    // @theme inline の色は、どれもどこかで使う（bg-x / text-x / fill-x などのユーティリティ）
+    const inline = css.slice(css.indexOf("@theme inline"));
+    const all = sources.map(([, src]) => src).join("\n");
+    const unused = [...inline.matchAll(/--color-([a-z0-9-]+):/g)]
+      .map((m) => m[1])
+      .filter((name) => !new RegExp(`(?:bg|text|fill|stroke|outline|accent|caret)-${name}(?![\\w-])`).test(all));
+    expect(unused).toEqual([]);
   });
 });
 
@@ -113,8 +150,19 @@ describe("screen layout (styles/screen.css)", () => {
   });
 
   it("puts the editor and the toolbar on the same panel", () => {
-    expect(rule(screen, ".pane-edit")).toContain("background: var(--card)");
-    expect(rule(screen, ".editor-wrap")).toContain("background: var(--card)");
+    expect(rule(screen, ".pane-edit")).toContain("@apply surface-card");
+    expect(rule(screen, ".editor-wrap")).toContain("@apply surface-card");
+    expect(read("components/ui/toolbar.tsx")).toContain('"surface-card flex');
+  });
+
+  it("never hides the view tabs, and shrinks their labels to caption while the keyboard is shown", () => {
+    // display を決めるのは TabsList の flex（ユーティリティ）。骨組みの CSS では .view-tabs と .tab の display を変えない
+    for (const m of screen.matchAll(/([^{}]*)\{([^}]*)\}/g)) {
+      if (/\.view-tabs|\.tab\b/.test(m[1])) expect(m[2], m[1]).not.toMatch(/display:/);
+    }
+    const editor = sources.find(([f]) => f.endsWith("EditorScreen.tsx"))![1];
+    expect(editor).toContain('cn("tab", !wide && "kb:flex-auto kb:text-caption")');
+    expect(editor).toMatch(/<TabsList className="view-tabs"/);
   });
 
   it("while the keyboard is shown (one-pane), hides the title but keeps ‹ and the tabs on one row", () => {
@@ -125,8 +173,8 @@ describe("screen layout (styles/screen.css)", () => {
     document.body.innerHTML = `
       <div class="screen editor-screen" data-wide="false">
         <header class="topbar">
-          <div class="topbar-main"><a class="icon-btn">‹</a><div class="topbar-text"><h1 class="topbar-title">題</h1></div></div>
-          <nav class="view-tabs"><button class="tab">編集</button><button class="tab">プレビュー</button></nav>
+          <div class="topbar-main"><a data-slot="back" aria-label="記事一覧へ"><svg></svg></a><div class="topbar-text"><h1 class="topbar-title">題</h1></div></div>
+          <nav data-slot="tabs-list" class="view-tabs"><button data-slot="tabs-trigger" class="tab">編集</button><button data-slot="tabs-trigger" class="tab">プレビュー</button></nav>
         </header>
       </div>`;
     const q = (sel: string) => getComputedStyle(document.querySelector(sel)!);
@@ -137,7 +185,7 @@ describe("screen layout (styles/screen.css)", () => {
       expect(q(".topbar-text").display).toBe("none");
       expect(q(".topbar").flexWrap).toBe("nowrap");
       expect(q(".view-tabs").display).not.toBe("none");
-      expect(q(".icon-btn").display).not.toBe("none");
+      expect(q("[data-slot=back]").display).not.toBe("none");
       for (const t of document.querySelectorAll(".tab")) expect(getComputedStyle(t).display).not.toBe("none");
       // 2 ペインでは題を隠さない
       document.querySelector(".editor-screen")!.setAttribute("data-wide", "true");
@@ -172,9 +220,62 @@ describe("CodeMirror (styles/codemirror.css)", () => {
   });
 });
 
-describe("components", () => {
-  it("does not read the arrow of 'continue' aloud", () => {
-    const src = sources.find(([f]) => f.endsWith("ProjectList.tsx"))![1];
-    expect(src).toContain("before:content-['▶_'/'']");
+describe("design rules (docs: scratchpad design-system.md の「使い分けの規則」)", () => {
+  const ui = sources.filter(([f]) => f.startsWith("components/ui/"));
+  const screens = sources.filter(([f]) => !f.startsWith("components/ui/"));
+  // クラス名らしい語（className の文字列・cva の中）
+  const classes = (src: string) => src.match(/[\w:!\-[\]().%/,&>+=*#]+/g) ?? [];
+
+  it("uses no arbitrary values for text, radius, color, shadow or spacing (except the safe-area calc)", () => {
+    for (const [file, src] of sources) {
+      const bad = (src.match(/(?<![\w-])-?(text|rounded(-[trblse]{1,2})?|bg|shadow|outline|p[xytrblse]?|m[xytrblse]?|gap(-[xy])?|space-[xy])-\[[^\]]*\]/g) ?? []).filter(
+        (c) => !/env\(/.test(c),
+      );
+      expect(bad, file).toEqual([]);
+    }
+  });
+
+  it("keeps surfaces, radii, shadows and weights inside components/ui (screens only place and size the parts)", () => {
+    for (const [file, src] of screens) {
+      const bad = classes(src).filter((c) => /(^|:)(bg|rounded|shadow)-[a-z0-9]/.test(c) || /(^|:)font-bold$/.test(c));
+      expect(bad, file).toEqual([]);
+    }
+    for (const [file, src] of ui) expect(src, file).not.toMatch(/font-bold/);
+  });
+
+  it("uses the spacing scale 4 / 8 / 12 / 16 / 24 / 32 (+2 inside a line, 44 for the hit area)", () => {
+    const allowed = new Set(["0", "0.5", "1", "2", "3", "4", "6", "8", "11"]);
+    for (const [file, src] of sources) {
+      const used = [...src.matchAll(/(?<![\w-])-?(?:p[xytrblse]?|m[xytrblse]?|gap(?:-[xy])?)-(\d+(?:\.\d+)?)(?![\w.])/g)].map((m) => m[1]);
+      expect(used.filter((v) => !allowed.has(v)), file).toEqual([]);
+    }
+    for (const [name, text] of [["screen.css", screen], ["codemirror.css", cm]] as const) {
+      for (const m of text.matchAll(/\n\s*(padding|margin|gap|column-gap|row-gap)[\w-]*:\s*([^;]+);/g)) {
+        for (const v of m[2].match(/\d+px/g) ?? []) expect(["0px", "2px", "4px", "8px", "12px", "16px", "24px", "32px"], `${name}: ${m[0].trim()}`).toContain(v);
+      }
+    }
+  });
+
+  it("sets font sizes in the CSS only from the text tokens (the editor uses the input size)", () => {
+    for (const [name, text] of [["screen.css", screen], ["codemirror.css", cm]] as const) {
+      for (const m of text.matchAll(/font-size:\s*([^;]+);/g)) expect(m[1], name).toMatch(/^(var\(--text-(caption|body|title|screen)\)|16px)$/);
+    }
+  });
+
+  it("draws icons with lucide-react, not with text symbols", () => {
+    for (const [file, src] of sources) {
+      // JSX の文字として置いた記号（‹ ↶ ⇄ ▶ − ＋ × ?）
+      expect(src.match(/>\s*[‹↶⇄▶−＋×]\s*</g), file).toBeNull();
+      expect(src, file).not.toMatch(/content-\['[▶‹]/);
+    }
+    const imports = sources.flatMap(([, src]) => [...src.matchAll(/from "lucide-react"/g)]);
+    expect(imports.length).toBeGreaterThan(0);
+    // 名前付きの import だけ（全部を読み込まない）
+    for (const [file, src] of sources) expect(src, file).not.toMatch(/import \* as \w+ from "lucide-react"|from "lucide-react\/dynamic"/);
+  });
+
+  it("removes CodeMirror's lines in the lint tooltip", () => {
+    expect(cm).toMatch(/\.code-editor \.cm-tooltip \{\s*border: 0;/);
+    expect(cm).toMatch(/\.code-editor \.cm-tooltip \.cm-diagnostic \{\s*border: 0;/);
   });
 });

@@ -285,7 +285,7 @@ describe("EditToolbar", () => {
       vi.useRealTimers();
     }
   });
-  it("styles the keys from the design system: box-colored keys on the panel, no feedback while aria-disabled, Save at a fixed size", async () => {
+  it("styles the keys from the design system: box-colored keys on the panel, no feedback while aria-disabled, Save at a fixed width", async () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
@@ -298,22 +298,28 @@ describe("EditToolbar", () => {
     await render({});
     const bar = host.querySelector<HTMLElement>(".edit-toolbar")!;
     const tokens = (el: Element) => el.className.split(/\s+/);
-    expect(tokens(bar)).toContain("bg-card");
+    // ツールバーはエディタと同じパネルの面。キーの地はその面が配る箱の地
+    expect(tokens(bar)).toContain("surface-card");
     for (const b of host.querySelectorAll("button")) {
       // 押した・ホバーの反応は、disabled と aria-disabled のキーには出さない
       for (const t of tokens(b).filter((t) => /(^|:)(hover|active):/.test(t))) expect(t, b.textContent!).toContain("not-aria-disabled:");
-      expect(tokens(b)).toContain("rounded-key");
+      expect(tokens(b)).toContain("rounded-box");
+      expect(tokens(b)).toContain("text-body");
     }
     for (const c of host.querySelectorAll(".tb-char")) {
-      expect(tokens(c)).toContain("bg-secondary");
+      expect(tokens(c)).toContain("bg-box");
       expect(tokens(c)).toContain("flex-1");
       expect(c.className).not.toMatch(/max-w-/);
     }
+    // 元に戻すはアイコン（読み上げはボタンの aria-label）
+    const undo = host.querySelector("button[aria-label='元に戻す']")!;
+    expect(undo.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
     const save = host.querySelector(".tb-save")!;
-    // 文字は px で固定・折り返さない。太さは全状態で同じ。未保存は塗りの primary にせず、accent の地に primary の文字
-    expect(tokens(save)).toEqual(expect.arrayContaining(["text-[14px]", "whitespace-nowrap", "font-semibold", "w-14"]));
-    expect(save.className).not.toMatch(/data-\[state=[a-z]+\]:font-/);
-    expect(tokens(save)).toEqual(expect.arrayContaining(["data-[state=dirty]:bg-accent", "data-[state=dirty]:text-primary"]));
+    // 幅を固定して折り返さない。太さは全状態で同じ。未保存は塗りの primary にせず、accent の地に primary の文字
+    expect(tokens(save)).toEqual(expect.arrayContaining(["whitespace-nowrap", "font-semibold", "w-12"]));
+    expect(save.className).not.toMatch(/text-\[/);
+    expect((save as HTMLElement).dataset.state).toBe("dirty");
+    expect(tokens(save)).toEqual(expect.arrayContaining(["bg-accent", "text-primary"]));
     expect(save.className).not.toMatch(/bg-primary/);
     // 画像シートを開いている間は、保存もほかのキーと同じく薄くする
     expect(tokens(save)).toContain("in-data-[locked=true]:opacity-50");

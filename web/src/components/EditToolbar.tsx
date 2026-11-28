@@ -1,4 +1,5 @@
 import { type SyntheticEvent, useEffect, useRef, useState } from "react";
+import { Undo2 } from "lucide-react";
 import { Toolbar, ToolbarGap, ToolbarKey } from "./ui/toolbar";
 
 // ソフトキーボード表示中も見えるツールバー（spec 4.2）。押してもエディタのフォーカスを外さない。
@@ -40,18 +41,15 @@ function useShownState(state: SaveState): SaveState {
   return slow ? "saving" : state === "saving" ? before.current : state;
 }
 
-// 「保存」は保存の状態を文言と色で示す。文言が変わってもキーの並びがずれないよう幅を固定する。
-// 文字の拡大で折れて切れないよう px で指定し、折り返さない（エディタの本文・行番号と同じ扱い）。
-// 太さは全状態で同じにする（文言が変わるたびに字の形が揺れないように）。
-// 未保存は自動保存（2 秒）で消えるので、塗りの primary で呼びかけず、記号キーと同じ強さの accent の地にする。
-// 画像シートを開いている間（エディタが読み取り専用）は、ほかのキーと同じく薄くする
-export const SAVE_CLASS = [
-  "tb-save w-14 px-0 text-[14px] font-semibold whitespace-nowrap bg-transparent text-muted-foreground",
-  "data-[state=dirty]:bg-accent data-[state=dirty]:text-primary",
-  "data-[state=conflict]:bg-destructive-soft data-[state=conflict]:text-destructive",
-  "data-[state=error]:bg-destructive-soft data-[state=error]:text-destructive",
-  "in-data-[locked=true]:opacity-50",
-].join(" ");
+// 「保存」は保存の状態を文言と色で示す（見た目は ui/toolbar の save と tone）。
+// 未保存は自動保存（2 秒）で消えるので、塗りの primary で呼びかけず、記号キーと同じ強さの accent の地にする
+export const SAVE_TONE: Record<SaveState, "quiet" | "accent" | "destructive"> = {
+  clean: "quiet",
+  saving: "quiet",
+  dirty: "accent",
+  conflict: "destructive",
+  error: "destructive",
+};
 
 export function EditToolbar(props: {
   onSave(): void;
@@ -73,7 +71,9 @@ export function EditToolbar(props: {
   return (
     <Toolbar className="edit-toolbar" aria-label="入力補助" data-locked={props.disabled === true}>
       <ToolbarKey
-        className={SAVE_CLASS}
+        kind="save"
+        tone={SAVE_TONE[state]}
+        className="tb-save"
         data-state={state}
         {...hold}
         onClick={() => !saveOff && props.onSave()}
@@ -83,12 +83,12 @@ export function EditToolbar(props: {
         {SAVE_TEXT[state]}
       </ToolbarKey>
       <ToolbarKey {...hold} onClick={props.onUndo} aria-label="元に戻す" disabled={props.disabled}>
-        ↶
+        <Undo2 />
       </ToolbarKey>
       <ToolbarGap />
       {TOOLBAR_CHARS.map((c) => (
         // 記号キーは残りの幅を分け合う（320px でも右端の " まで収める。広い画面では幅いっぱいに伸ばし、右を空けない）
-        <ToolbarKey key={c} className="tb-char min-w-7 flex-1 px-0 font-mono" {...hold} onClick={() => props.onInsert(c)} disabled={props.disabled}>
+        <ToolbarKey key={c} kind="glyph" className="tb-char" {...hold} onClick={() => props.onInsert(c)} disabled={props.disabled}>
           {c}
         </ToolbarKey>
       ))}

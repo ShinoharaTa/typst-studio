@@ -1,8 +1,10 @@
 import type { ReactNode } from "react";
 import type { PreviewStatus } from "../api/types";
 import { articleTitle, type ArticleCtx } from "../lib/article-label";
-import { Alert, AlertText } from "./ui/alert";
+import { Alert } from "./ui/alert";
 import { Button } from "./ui/button";
+import { EmptyState } from "./ui/empty-state";
+import { Stage, StageFrame, StageSurface } from "./ui/panel";
 
 // 記事プレビュー（tinymist を /preview/ で中継したもの）。タブを切り替えてもアンマウントしない
 export function PreviewPane(props: {
@@ -22,47 +24,43 @@ export function PreviewPane(props: {
   let notice: ReactNode = null;
   if (props.error) {
     notice = (
-      <Alert variant="destructive">
-        <p>プレビューを開始できません: {props.error}</p>
-        <Button variant="surface" onClick={props.onStart}>
-          もう一度
-        </Button>
+      <Alert variant="destructive" action={<Button onClick={props.onStart}>もう一度</Button>}>
+        プレビューを開始できません: {props.error}
       </Alert>
     );
-  } else if (props.starting || status?.state === "starting") {
-    notice = <AlertText className="text-muted-foreground">プレビューを起動中…</AlertText>;
   } else if (status && status.state === "running" && !mine) {
     notice = (
-      <Alert>
-        <p>プレビューは別の記事（{status.project} / {status.article ? articleTitle(status.article, props.articleCtx) : ""}）を表示中です。</p>
-        <Button variant="surface" onClick={props.onStart}>
-          この記事で開く
-        </Button>
+      <Alert action={<Button onClick={props.onStart}>この記事で開く</Button>}>
+        プレビューは別の記事（{status.project} / {status.article ? articleTitle(status.article, props.articleCtx) : ""}）を表示中です。
       </Alert>
     );
   } else if (status && (status.state === "stopped" || status.state === "stopping")) {
     notice = (
-      <Alert>
-        <p>プレビューは停止しています{status.lastError ? `（${status.lastError}）` : ""}。</p>
-        <Button variant="surface" onClick={props.onStart}>
-          再開
-        </Button>
+      <Alert action={<Button onClick={props.onStart}>再開</Button>}>
+        プレビューは停止しています{status.lastError ? `（${status.lastError}）` : ""}。
       </Alert>
     );
   }
+  const starting = !props.error && (props.starting || status?.state === "starting");
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       {props.compile && !props.compile.ok && running && (
-        <p className="m-2 max-h-[30%] overflow-y-auto rounded-box bg-destructive-soft px-3 py-1.5 text-sm text-destructive wrap-anywhere" role="status">
+        <Alert variant="destructive" size="sm" className="max-h-[30%] flex-none overflow-y-auto" role="status">
           コンパイルエラー{props.compile.message ? `: ${props.compile.message}` : ""}
-        </p>
+        </Alert>
       )}
       {notice}
-      {running && (
-        // startedAt が変われば（起動し直したら）読み込み直す
-        <iframe key={status?.startedAt ?? ""} className="w-full flex-1 bg-paper" src="/preview/" title="記事プレビュー" />
-      )}
+      {/* 紙の台は本タブの PDF と同じ作り（沈んだ面に角丸 box で置き、その上に紙） */}
+      <Stage>
+        <StageSurface className="overflow-hidden">
+          {running && (
+            // startedAt が変われば（起動し直したら）読み込み直す
+            <StageFrame key={status?.startedAt ?? ""} src="/preview/" title="記事プレビュー" />
+          )}
+        </StageSurface>
+        {starting && <EmptyState fill>プレビューを起動中…</EmptyState>}
+      </Stage>
     </div>
   );
 }

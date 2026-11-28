@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle } from "./ui/alert-dialog";
 import { Button } from "./ui/button";
 
@@ -16,9 +17,11 @@ export function ConflictDialog(props: {
   const c = props.conflict;
   const gone = c?.rev === null;
   const unreadable = !gone && c?.content === null;
+  // 開いた直後のフォーカスはダイアログ自体に置く（どちらのボタンも手元かディスクの内容を捨てるので、先に当てない）
+  const popup = useRef<HTMLDivElement>(null);
   return (
     <AlertDialog open={props.open}>
-      <AlertDialogContent>
+      <AlertDialogContent ref={popup} initialFocus={popup}>
         <AlertDialogTitle>{gone ? "ファイルが無くなった" : "ディスク側が変わった"}</AlertDialogTitle>
         <AlertDialogDescription>
           {gone

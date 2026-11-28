@@ -20,9 +20,11 @@ import type { ImageTarget } from "./ImageEditor";
 import { ImageSheet } from "./ImageSheet";
 import { ImagesPane } from "./ImagesPane";
 import { PreviewPane } from "./PreviewPane";
-import { AlertText } from "./ui/alert";
-import { Badge } from "./ui/badge";
+import { ArrowLeftRight, ChevronLeft, CircleAlert, TriangleAlert, X } from "lucide-react";
+import { Alert } from "./ui/alert";
+import { Badge, BadgeButton } from "./ui/badge";
 import { Button, buttonVariants } from "./ui/button";
+import { Banner, Chip } from "./ui/floating";
 import { TabsList, TabsTrigger } from "./ui/tabs";
 import { useProjectGit } from "./useProjectGit";
 import { cn } from "../lib/cn";
@@ -361,12 +363,12 @@ export function EditorScreen({ route }: { route: EditRoute }) {
 
   const editPane = (
     <section className="pane pane-edit" data-active={shown("edit")} aria-label="編集">
-      {loadError && <AlertText variant="destructive">{loadError}</AlertText>}
-      {snap.diskChanged && !conflict && <AlertText className="text-sm">ディスク側で変更あり（保存時に確認します）</AlertText>}
+      {loadError && <Alert variant="destructive">{loadError}</Alert>}
+      {snap.diskChanged && !conflict && <Alert size="sm">ディスク側で変更あり（保存時に確認します）</Alert>}
       {snap.removed && !conflict && (
-        <AlertText variant="destructive" className="text-sm">
+        <Alert variant="destructive" size="sm">
           ディスク上で削除されました（保存時に作り直すか確認します）
-        </AlertText>
+        </Alert>
       )}
       <div className="editor-wrap" data-loading={loading}>
         <CodeEditor
@@ -391,22 +393,19 @@ export function EditorScreen({ route }: { route: EditRoute }) {
         {cursorDiags.length > 0 && (
           // カーソルのある行の診断（タッチにはホバーが無いので、lint の吹き出しの代わりに出す）。タップで全文。
           // エディタの上に重ねる（出入りでエディタの高さを変えない）
-          <button
+          <Banner
             ref={bandRef}
-            type="button"
-            className={cn(
-              "line-diag absolute inset-x-2 bottom-2 z-3 block min-h-11 rounded-box px-3 py-1.5 text-left text-sm wrap-anywhere shadow-float",
-              cursorDiags[0].severity === "error" ? "bg-destructive-soft text-destructive" : "bg-warning-soft text-warning",
-              diagExpanded && "max-h-[40dvh] overflow-y-auto",
-            )}
+            tone={cursorDiags[0].severity === "error" ? "destructive" : "warning"}
+            className={cn("line-diag absolute inset-x-3 bottom-3 z-3 w-auto", diagExpanded && "max-h-[40dvh] overflow-y-auto")}
             data-expanded={diagExpanded}
             onPointerDown={(e) => e.preventDefault()}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => setDiagExpanded((x) => !x)}
           >
+            {cursorDiags[0].severity === "error" ? <CircleAlert aria-label="エラー" /> : <TriangleAlert aria-label="警告" />}
             {/* 2 行で切る（内側の要素で切る。外側で切ると余白に 3 行目がのぞく）。タップで全文 */}
-            <span className={diagExpanded ? "block" : "line-clamp-2"}>{diagSummary(cursorDiags)}</span>
-          </button>
+            <span className={diagExpanded ? "block min-w-0" : "line-clamp-2 min-w-0"}>{diagSummary(cursorDiags)}</span>
+          </Banner>
         )}
       </div>
       <EditToolbar
@@ -442,12 +441,12 @@ export function EditorScreen({ route }: { route: EditRoute }) {
           articleCtx={articleCtx}
         />
       </section>
-      <section className="pane pane-book" data-active={shown("book")} aria-label="本">
+      <section className="pane" data-active={shown("book")} aria-label="本">
         <BookPane project={project} active={shown("book") && pageVisible} onGoto={(f, l, c) => void gotoSource(f, l, c, true)}
           onDiagnostics={setBookDiags}
         />
       </section>
-      <section className="pane pane-images" data-active={shown("images")} aria-label="画像">
+      <section className="pane" data-active={shown("images")} aria-label="画像">
         <ImagesPane
           project={project}
           article={article}
@@ -473,8 +472,8 @@ export function EditorScreen({ route }: { route: EditRoute }) {
         {/* タブはヘッダの中。1 ペインは題の下の段（キーボード表示中は題を隠して「‹」と同じ段）。
             2 ペインはヘッダをペインと同じ 2 列に分ける（題は編集側、タブは右ペイン側の真上） */}
         <div className="topbar-main">
-          <a className={buttonVariants({ variant: "ghost", size: "icon" })} href={formatRoute({ view: "articles", project })} aria-label="記事一覧へ">
-            ‹
+          <a className={buttonVariants({ variant: "ghost", icon: true })} href={formatRoute({ view: "articles", project })} aria-label="記事一覧へ">
+            <ChevronLeft />
           </a>
           <div className="topbar-text">
             <h1 className="topbar-title" title={file}>
@@ -491,19 +490,15 @@ export function EditorScreen({ route }: { route: EditRoute }) {
               {file !== article && (
                 // 記事以外のファイルを開いた後、記事のファイルへ戻る
                 // 見た目は小さいピルのまま、押せる範囲を 44px 近くまで広げる
-                <button
-                  type="button"
-                  className={cn(
-                    "article-pill relative inline-flex items-center rounded-pill bg-card px-2 py-px text-xs whitespace-nowrap text-primary",
-                    "after:absolute after:-inset-x-1 after:-inset-y-3 active:bg-secondary-press",
-                  )}
+                <BadgeButton
+                  className="article-pill"
                   onClick={() => navigate({ ...routeRef.current, file: article })}
                   aria-label={`記事 ${articleName.name} のファイルへ戻る`}
                 >
                   記事: {articleName.name}
-                </button>
+                </BadgeButton>
               )}
-              {git && <GitBadge git={git} compact surface />}
+              {git && <GitBadge git={git} compact />}
               {saveAlert && (
                 <Badge variant="destructive" className={`save-state save-${saveAlert} flex-none`}>
                   {SAVE_ALERT[saveAlert]}
@@ -517,20 +512,22 @@ export function EditorScreen({ route }: { route: EditRoute }) {
           // 地なしの文字ボタン（押したとき・ホバーだけ面が出る）。タブのピルと見た目を分ける
           <Button
             variant="ghost"
-            className="swap-btn px-0 text-sm text-muted-foreground"
+            size="sm"
+            className="swap-btn"
             aria-label="編集とプレビューの左右を入れ替える"
             aria-pressed={swapped}
             onClick={() => setPaneOrder(swapped ? "edit-left" : "edit-right")}
           >
-            ⇄ 入れ替え
+            <ArrowLeftRight />
+            入れ替え
           </Button>
         )}
         <TabsList className="view-tabs" aria-label="表示の切り替え">
           {(wide ? (["preview", "book", "images"] as const) : (["edit", "preview", "book", "images"] as const)).map((t) => (
             <TabsTrigger
               key={t}
-              // キーボード表示中（1 ペイン）は「‹」と同じ段に並ぶので、文字を一回り小さくする
-              className={cn("tab", !wide && "kb:text-[min(0.85rem,14px)]")}
+              // キーボード表示中（1 ペイン）は「‹」と同じ段に並ぶので、文字を caption にし、幅は文字の長さに応じて分ける（320 幅でも省略しない）
+              className={cn("tab", !wide && "kb:flex-auto kb:text-caption")}
               active={(wide ? sideTab : tab) === t}
               onClick={() => setTab(t)}
             >
@@ -547,9 +544,7 @@ export function EditorScreen({ route }: { route: EditRoute }) {
         </div>
         {jump && (
           <div className="chip-wrap">
-            <Button
-              variant="chip"
-              size="pill"
+            <Chip
               onClick={() => {
                 const j = jump;
                 setJump(null);
@@ -557,10 +552,10 @@ export function EditorScreen({ route }: { route: EditRoute }) {
               }}
             >
               ソースへ（{jumpLabel(jump, jump.path === article ? articleName.name : null)}）
-            </Button>
-            <Button variant="chip" size="pill" className="w-11 flex-none px-0 text-muted-foreground" onClick={() => setJump(null)} aria-label="閉じる">
-              ×
-            </Button>
+            </Chip>
+            <Chip icon onClick={() => setJump(null)} aria-label="閉じる">
+              <X />
+            </Chip>
           </div>
         )}
       </div>

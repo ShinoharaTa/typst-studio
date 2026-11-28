@@ -3,26 +3,17 @@ import { toast } from "sonner";
 import { api, ApiError } from "../api/client";
 import type { ImageCall, ImageSet } from "../api/types";
 import { LatestOnly } from "../lib/schedule";
-import { cn } from "../lib/cn";
 import { formatLength, isValidLength, parseLength, toMm, type Unit } from "../lib/units";
-import { AlertText } from "./ui/alert";
+import { CornerDownLeft } from "lucide-react";
+import { Alert } from "./ui/alert";
 import { Button } from "./ui/button";
-import { Field, FieldError, FieldLabel, FieldLegend, FieldSet, Input, Slider } from "./ui/input";
-import { SegmentGroup, SegmentItem } from "./ui/segment";
+import { Field, FieldDescription, FieldError, FieldLabel, FieldLegend, FieldSet, Input, Slider } from "./ui/input";
+import { SegmentGroup, SegmentItem } from "./ui/tabs";
+import { Thumb } from "./ui/thumb";
 
 // 画像 1 つの width / height / alt の編集（spec 4.4 / 4.7 段階 2）
 //   操作中は PATCH dryRun → /api/preview/memory でプレビューだけ追従させ、ファイルは書かない。
 //   「適用」で初めて書き込む。「取り消し」はメモリ上の内容を捨ててディスクの内容に戻す
-
-// 画像のサムネイル（一覧の行・シートの見出し）。読めない画像は「?」
-export function ImageThumb({ src, className }: { src: string | null; className?: string }) {
-  const box = cn("size-12 flex-none rounded-thumb bg-card", className);
-  return src ? (
-    <img className={cn(box, "object-contain")} src={src} alt="" loading="lazy" />
-  ) : (
-    <span className={cn(box, "flex items-center justify-center text-muted-foreground")}>?</span>
-  );
-}
 
 export interface ImageTarget {
   call: ImageCall;
@@ -73,8 +64,9 @@ function buildSet(c: ImageCall, d: Draft): ImageSet | null {
   return set;
 }
 
-const EDITOR = "flex flex-col gap-4";
-const ACTIONS = "flex justify-end gap-2";
+const EDITOR = "flex flex-col gap-6";
+// 操作は末尾に右寄せ。主の操作（適用）を右端に置く。「ソースへ」は補助なので左端に地なしで置く
+const ACTIONS = "flex flex-wrap items-center justify-end gap-2";
 
 export function ImageEditor(props: {
   project: string;
@@ -211,23 +203,30 @@ export function ImageEditor(props: {
   const thumb = call.resolved ? api.rawUrl(project, call.resolved) : null;
   const head = (
     <div className="flex min-w-0 items-center gap-3">
-      <ImageThumb src={thumb} className="size-16 bg-secondary" />
-      <div className="min-w-0">
-        <div className="font-mono text-sm wrap-anywhere">{call.src ?? "（式）"}</div>
-        <Button variant="link" size="inline" className="whitespace-normal" onClick={() => void gotoSource()}>
-          ソースへ（{call.path}:{call.line}）
-        </Button>
-        {call.nearest && <div className="text-sm text-muted-foreground">タップした位置に近い画像</div>}
+      <Thumb src={thumb} size="lg" />
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <span className="font-mono text-body font-semibold wrap-anywhere">{call.src ?? "（式）"}</span>
+        <span className="text-caption text-muted-foreground wrap-anywhere">
+          {call.path}:{call.line}
+          {call.nearest && " ・ タップした位置に近い画像"}
+        </span>
       </div>
     </div>
+  );
+  const sourceButton = (
+    <Button variant="ghost" className="mr-auto" onClick={() => void gotoSource()} title={`${call.path}:${call.line}`}>
+      <CornerDownLeft />
+      ソースへ
+    </Button>
   );
 
   if (!call.editable) {
     return (
       <div className={EDITOR}>
         {head}
-        <AlertText className="m-0">編集不可（第 1 引数がリテラルでない、またはテンプレート内の画像）</AlertText>
+        <Alert inset="none">編集不可（第 1 引数がリテラルでない、またはテンプレート内の画像）</Alert>
         <div className={ACTIONS}>
+          {sourceButton}
           <Button onClick={() => props.onDone()}>閉じる</Button>
         </div>
       </div>
@@ -242,14 +241,14 @@ export function ImageEditor(props: {
     <div className={EDITOR}>
       {head}
       {loadError && (
-        <AlertText variant="destructive" className="m-0">
+        <Alert variant="destructive" inset="none">
           {loadError}
-        </AlertText>
+        </Alert>
       )}
       {followError && (
-        <AlertText variant="destructive" className="m-0">
+        <Alert variant="destructive" inset="none">
           {followError}
-        </AlertText>
+        </Alert>
       )}
 
       <FieldSet>
@@ -284,10 +283,10 @@ export function ImageEditor(props: {
                 aria-label="幅"
               />
             )}
-            <label className="flex flex-none items-center gap-1">
+            <label className="flex flex-none items-center gap-2">
               <Input
                 type="number"
-                className="w-[5.5em] px-2"
+                className="w-22"
                 inputMode="decimal"
                 min={0}
                 step="any"
@@ -300,7 +299,7 @@ export function ImageEditor(props: {
           </div>
         )}
         {draft.widthOn && draft.unit !== "%" && mm !== null && draft.unit !== "mm" && (
-          <p className="text-sm text-muted-foreground">≒ {Math.round(mm * 10) / 10} mm</p>
+          <FieldDescription>≒ {Math.round(mm * 10) / 10} mm</FieldDescription>
         )}
       </FieldSet>
 
@@ -308,13 +307,16 @@ export function ImageEditor(props: {
         <FieldLabel>高さ（height）</FieldLabel>
         <Input
           aria-invalid={heightInvalid}
-          placeholder="例: 8em / 40mm（空欄で指定なし）"
           value={draft.height}
           onChange={(e) => update({ height: e.target.value })}
           autoCapitalize="off"
           autoCorrect="off"
         />
-        {heightInvalid && <FieldError>数値 + 単位（% mm cm pt em in）で書いてください</FieldError>}
+        {heightInvalid ? (
+          <FieldError>数値 + 単位（% mm cm pt em in）で書いてください</FieldError>
+        ) : (
+          <FieldDescription>例: 8em / 40mm。空欄で指定なし</FieldDescription>
+        )}
       </Field>
 
       <Field>
@@ -323,6 +325,7 @@ export function ImageEditor(props: {
       </Field>
 
       <div className={ACTIONS}>
+        {sourceButton}
         <Button onClick={() => void cancel()} disabled={busy}>
           取り消し
         </Button>

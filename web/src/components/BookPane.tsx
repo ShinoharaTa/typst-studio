@@ -6,10 +6,12 @@ import { useStudioEvent } from "../lib/hooks";
 import { usePref } from "../lib/prefs";
 import { AutoBuild, isBuildInput } from "../lib/schedule";
 import { PdfViewer } from "./PdfViewer";
-import { Alert, AlertText } from "./ui/alert";
+import { Alert } from "./ui/alert";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import { Disclosure, DisclosureSummary } from "./ui/disclosure";
 import { Checkbox, Label, NativeSelect } from "./ui/input";
+import { List, ListItem, ListItemButton, ListItemContent, ListItemDescription, ListItemTitle } from "./ui/list";
 import { PanelBar } from "./ui/panel";
 import { cn } from "../lib/cn";
 
@@ -90,8 +92,15 @@ export function BookPane(props: {
   const onDiagnostics = props.onDiagnostics;
   useEffect(() => onDiagnostics(diags), [diags, onDiagnostics]);
 
+  // ビルドは本タブの主の操作（primary）。まだビルドされていないときは PDF の台の中央にも出す
+  const buildButton = (
+    <Button variant="primary" onClick={() => void build()} disabled={!profile}>
+      {status?.state === "running" ? "ビルド中…" : status?.state === "queued" ? "待ち 1 件" : "ビルド"}
+    </Button>
+  );
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-card">
+    <div className="flex min-h-0 flex-1 flex-col">
       {/* 1 行目はプロファイルとビルドだけ（スマホで PDF の場所を空ける）。ダウンロードは PDF のバー、自動ビルドは状態の行へ */}
       <PanelBar className="book-bar flex-nowrap">
         <NativeSelect
@@ -107,12 +116,10 @@ export function BookPane(props: {
             </option>
           ))}
         </NativeSelect>
-        <Button variant="primary" className="flex-none" onClick={() => void build()} disabled={!profile}>
-          {status?.state === "running" ? "ビルド中…" : status?.state === "queued" ? "待ち 1 件" : "ビルド"}
-        </Button>
+        {buildButton}
       </PanelBar>
 
-      <div className="book-status flex flex-none flex-nowrap items-center gap-x-2 gap-y-1 px-3 pb-1.5">
+      <PanelBar className="book-status flex-nowrap">
         <BuildSummary status={status} />
         {status?.stale && (
           <Badge variant="warning" className="flex-none">
@@ -123,40 +130,37 @@ export function BookPane(props: {
           <Checkbox checked={autoOn} onChange={(e) => setAutoPref(e.target.checked ? "on" : "off")} />
           自動ビルド
         </Label>
-      </div>
+      </PanelBar>
 
-      {error && <AlertText variant="destructive">{error}</AlertText>}
+      {error && <Alert variant="destructive">{error}</Alert>}
       {nomem && (
-        <Alert variant="destructive">
-          <p>
-            空きメモリが足りないのでビルドできません
-            {nomem.available !== undefined && nomem.required !== undefined
-              ? `（空き ${mb(nomem.available)} / 必要 ${mb(nomem.required)}）`
-              : ""}
-            。
-          </p>
-          <Button variant="surface" onClick={() => void build(true)}>
-            プレビューを止めてビルド
-          </Button>
+        <Alert variant="destructive" action={<Button onClick={() => void build(true)}>プレビューを止めてビルド</Button>}>
+          空きメモリが足りないのでビルドできません
+          {nomem.available !== undefined && nomem.required !== undefined ? `（空き ${mb(nomem.available)} / 必要 ${mb(nomem.required)}）` : ""}。
         </Alert>
       )}
 
       {diags.length > 0 && (
-        <details className="mx-2 mb-2 max-h-[35%] flex-none overflow-y-auto" open={last ? !last.ok : false}>
-          <summary className="flex min-h-11 cursor-pointer items-center rounded-box bg-secondary px-3">
+        <Disclosure className="mx-3 mb-2 max-h-[35%] flex-none overflow-y-auto" open={last ? !last.ok : false}>
+          <DisclosureSummary>
             診断 {diags.length} 件（エラー {diags.filter((d) => d.severity === "error").length}）
-          </summary>
-          <ul className="mt-1 flex flex-col gap-1">
+          </DisclosureSummary>
+          <List className="mt-2">
             {diags.map((d, i) => (
               <li key={i}>
                 <DiagRow d={d} onGoto={props.onGoto} />
               </li>
             ))}
-          </ul>
-        </details>
+          </List>
+        </Disclosure>
       )}
 
-      <PdfViewer url={success?.pdfUrl ?? null} active={props.active} downloadUrl={success?.pdfUrl ?? null} />
+      <PdfViewer
+        url={success?.pdfUrl ?? null}
+        active={props.active}
+        downloadUrl={success?.pdfUrl ?? null}
+        empty={status?.state === "running" || status?.state === "queued" ? undefined : buildButton}
+      />
     </div>
   );
 }
@@ -197,7 +201,7 @@ function BuildSummary({ status }: { status: BuildStatus | null }) {
     <button
       type="button"
       className={cn(
-        "book-summary min-h-11 min-w-0 flex-[0_1_auto] text-left text-sm",
+        "book-summary min-h-11 min-w-0 flex-[0_1_auto] text-left text-caption",
         expanded ? "overflow-hidden wrap-anywhere" : "truncate",
         failed && "text-destructive",
       )}
@@ -211,28 +215,20 @@ function BuildSummary({ status }: { status: BuildStatus | null }) {
   );
 }
 
-// 診断の 1 件（パネルの上の箱）
-const DIAG = "flex w-full min-h-11 flex-wrap gap-x-2 gap-y-0.5 rounded-box bg-secondary px-3 py-2 text-left text-sm wrap-anywhere";
-
+// 診断の 1 件（一覧の行）。題は内容、説明は 重さ・場所。場所があれば押すとソースへ
 function DiagRow({ d, onGoto }: { d: Diagnostic; onGoto(file: string, line: number, column: number): void }) {
   const where = d.file ? `${d.file}${d.line ? `:${d.line}` : ""}${d.column ? `:${d.column}` : ""}` : "";
   const body = (
-    <>
-      <span className={cn("font-semibold", d.severity === "error" ? "text-destructive" : "text-warning")}>
-        {d.severity === "error" ? "エラー" : "警告"}
-      </span>
-      {where && <span className="font-mono text-primary">{where}</span>}
-      <span className="basis-full">{d.message}</span>
-    </>
+    <ListItemContent>
+      <ListItemTitle>{d.message}</ListItemTitle>
+      <ListItemDescription>
+        <Badge variant={d.severity === "error" ? "destructive" : "warning"} className="mr-2">
+          {d.severity === "error" ? "エラー" : "警告"}
+        </Badge>
+        {where && <span className="font-mono">{where}</span>}
+      </ListItemDescription>
+    </ListItemContent>
   );
-  if (!d.file || !d.line) return <div className={DIAG}>{body}</div>;
-  return (
-    <button
-      type="button"
-      className={cn(DIAG, "transition-colors duration-140 active:bg-secondary-press hover:bg-secondary-press")}
-      onClick={() => onGoto(d.file!, d.line!, d.column ?? 1)}
-    >
-      {body}
-    </button>
-  );
+  if (!d.file || !d.line) return <ListItem>{body}</ListItem>;
+  return <ListItemButton onClick={() => onGoto(d.file!, d.line!, d.column ?? 1)}>{body}</ListItemButton>;
 }

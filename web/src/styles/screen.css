@@ -1,7 +1,23 @@
 /* 画面の骨組み。styles.css から layer(components) で読み込む（部品の見た目は components/ui/ のユーティリティ）。
    ここに書くのは、幅（data-wide）・入れ替え（data-swap）・キーボード（:root[data-kb]）・safe-area で変わる配置だけ。
    ここで決める性質（display・flex・margin・padding）は、同じ要素のユーティリティで重ねて書かない
-   （ユーティリティの層が勝つので、ここの規則が効かなくなる） */
+   （ユーティリティの層が勝つので、ここの規則が効かなくなる）。
+   余白は 4 / 8 / 12 / 16 / 24 / 32（行内だけ 2）。画面の外周（ヘッダ・2 ペインの隙間）は 8、ペインの内側は 12 */
+
+/* トーストの上端（components/ui/sonner.tsx）。一覧の画面ではヘッダに重ねてよい。
+   編集画面（1 ペイン）はヘッダとタブの段の下、キーボード表示中は「‹」とタブの 1 段の下、2 ペインはヘッダの下 */
+:root {
+  --toast-top: calc(env(safe-area-inset-top) + 8px);
+}
+
+:root:has(.editor-screen[data-wide="false"]) {
+  --toast-top: calc(env(safe-area-inset-top) + 120px);
+}
+
+:root[data-kb]:has(.editor-screen[data-wide="false"]),
+:root:has(.editor-screen[data-wide="true"]) {
+  --toast-top: calc(env(safe-area-inset-top) + 60px);
+}
 
 /* ---- 画面・ヘッダ ---- */
 
@@ -33,6 +49,18 @@
   flex: 1;
 }
 
+/* 「‹」の無い画面（プロジェクト一覧）の題は、一覧の行の文字と左端を揃える（外周 8 + 16 = 行の 12 + 12） */
+.topbar > .topbar-title {
+  padding: 0 16px;
+}
+
+/* 一覧の画面は、ヘッダも本文（ListMain の最大幅 640 + 左右 12）と同じ幅で中央に置く */
+.list-screen > .topbar {
+  width: 100%;
+  max-width: calc(var(--container-list) + 24px);
+  margin: 0 auto;
+}
+
 .topbar-text {
   display: flex;
   flex-direction: column;
@@ -41,8 +69,10 @@
   padding: 4px;
 }
 
+/* 画面の題（text-screen・semibold）。どの画面でも同じ大きさ */
 .topbar-title {
-  font-size: 1rem;
+  font-size: var(--text-screen);
+  line-height: var(--text-screen--line-height);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -54,7 +84,8 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 8px;
-  font-size: var(--text-xs);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
   min-width: 0;
 }
 
@@ -74,7 +105,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: var(--card);
+  @apply surface-card;
 }
 
 .pane[data-active="false"] {
@@ -85,7 +116,7 @@
 /* 編集のペインは、本文（エディタ）と入力補助（ツールバー）を同じパネルの面に載せる。
    ツールバーを背景色にすると、エディタから切り離された別の部品に見える */
 .pane-edit {
-  background: var(--card);
+  @apply surface-card;
 }
 
 .editor-screen[data-wide="false"] .side,
@@ -195,7 +226,7 @@
   min-height: 0;
   border-radius: var(--radius-panel);
   overflow: hidden;
-  background: var(--card);
+  @apply surface-card;
 }
 
 /* 表示の切り替え（TabsList）。幅・キーボードの有無によらず上端（切り替える面の真上）に置く。キーボード表示中も隠さない */
@@ -249,7 +280,7 @@
   flex: 1;
   min-height: 0;
   display: flex;
-  background: var(--card);
+  @apply surface-card;
 }
 
 /* 本文の下端をパネル色へ薄くフェードさせる（線を使わずに、途中で切れた行と記号キーの境目を作る）。
@@ -272,7 +303,7 @@
 
 /* 入力補助（Toolbar）。上はフェードした本文との間を空ける */
 .edit-toolbar {
-  padding: 8px 8px 4px;
+  padding: 8px 12px 4px;
 }
 
 /* 1 ペインではツールバーが画面の最下段になる（キーボード表示中は下にキーボードが来るので空けない） */
@@ -315,18 +346,17 @@
 
 /* ---- プレビュー・本・画像 ---- */
 
-/* 1 ペインではプレビューが画面の最下段まで来るので、ホームバーの分を空ける */
-.editor-screen[data-wide="false"] .pane-preview {
-  padding-bottom: env(safe-area-inset-bottom);
+/* 紙の台（Stage）。PDF とプレビューで同じ作り。左右と下はペインの余白。プレビューは上に操作の段が無いので上も空ける */
+.stage {
+  padding: 0 12px 12px;
 }
 
-/* PDF の台と、その上に重ねる「まだビルドされていません」などの文言 */
-.pdf-stage {
-  padding: 0 8px 8px;
+.pane-preview .stage {
+  padding-top: 12px;
 }
 
-.editor-screen[data-wide="false"] .pdf-stage {
-  padding-bottom: calc(8px + env(safe-area-inset-bottom));
+.editor-screen[data-wide="false"] .stage {
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
 }
 
 /* PdfView（lib/pdf-view.ts）が作る要素 */
@@ -338,8 +368,8 @@
 .pdf-page {
   position: absolute;
   left: 12px;
-  background: #fff;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 0.18);
+  background: var(--paper);
+  box-shadow: var(--elev-page);
 }
 
 .pdf-page canvas {
@@ -348,7 +378,7 @@
 }
 
 .images-list {
-  padding: 0 8px 16px;
+  padding: 0 12px 16px;
 }
 
 .editor-screen[data-wide="false"] .images-list {
