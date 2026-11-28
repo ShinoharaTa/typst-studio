@@ -5,6 +5,7 @@ import type { Diagnostic, ImageCall, Position, PreviewStatus } from "../api/type
 import { articleContext, articleLabel, type ArticleCtx } from "../lib/article-label";
 import { DocSession, type DocSnapshot } from "../lib/doc-session";
 import { useMedia, usePageVisible, useStudioEvent } from "../lib/hooks";
+import { writeLastEdit } from "../lib/last-edit";
 import { diagsAtLine, diagSummary } from "../lib/line-diag";
 import { MemorySync } from "../lib/memory-sync";
 import { usePref } from "../lib/prefs";
@@ -62,6 +63,8 @@ export function EditorScreen({ route }: { route: EditRoute }) {
   // 2 ペインの左右（端末ごと）。DOM の順は変えず CSS の order で入れ替える（iframe を読み込み直さない）
   const [paneOrder, setPaneOrder] = usePref("typst-studio.paneOrder", "edit-left");
   const swapped = paneOrder === "edit-right";
+  // 「続きから」のために、最後に開いた編集先を覚える
+  useEffect(() => writeLastEdit({ project, article, file }), [project, article, file]);
   const editor = useRef<CodeEditorHandle>(null);
   const session = useRef<DocSession | null>(null);
   const [snap, setSnap] = useState<DocSnapshot>({ state: "clean", diskChanged: false, removed: false });

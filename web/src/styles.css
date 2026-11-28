@@ -439,6 +439,26 @@ code {
   font-weight: 600;
 }
 
+/* 「続きから」（プロジェクト一覧の最上部）と「前回」 */
+.continue-card {
+  margin-bottom: var(--sp-3);
+  background: var(--accent-soft);
+}
+
+.continue-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.last-pill {
+  margin-left: var(--sp-2);
+  vertical-align: 2px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .list-row-sub {
   color: var(--muted);
   font-size: 0.85rem;

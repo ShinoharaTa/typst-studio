@@ -31,7 +31,8 @@ const STOPPED = { state: "stopped", project: null, article: null, startedAt: nul
 async function fakeFetch(input: string, init: RequestInit = {}): Promise<Response> {
   const url = new URL(input, "http://studio.test");
   const method = init.method ?? "GET";
-  if (url.pathname === "/api/projects") return json(200, []);
+  if (url.pathname === "/api/projects")
+    return json(200, [{ name: "sample-book", branch: "main", detached: false, head: "0", uncommitted: 0, unpushed: 0, upstream: "origin/main" }]);
   if (url.pathname === "/api/preview/status" || url.pathname === "/api/preview/start") return json(200, STOPPED);
   if (url.pathname.endsWith("/profiles")) return json(200, { profiles: [], default: null });
   if (url.pathname.endsWith("/articles")) return json(200, [{ path: "a.typ" }, { path: "b.typ" }]);
@@ -265,6 +266,18 @@ describe("leaving the editor", () => {
   it("does not show the swap button in one-pane mode", async () => {
     await openEditor();
     expect(host.querySelector(".swap-btn")).toBeNull();
+  });
+
+  it("offers 'continue' on the project list and marks the last article", async () => {
+    await openEditor("b.typ");
+    await go("#/");
+    await until(() => !!host.querySelector(".continue-card"), "continue card");
+    const card = host.querySelector<HTMLAnchorElement>(".continue-card")!;
+    expect(card.textContent).toContain("sample-book / b");
+    expect(card.getAttribute("href")).toBe("#/p/sample-book/edit/b.typ");
+    await go("#/p/sample-book");
+    await until(() => !!host.querySelector(".last-pill"), "last pill");
+    expect(host.querySelector(".last-pill")!.closest("a")!.getAttribute("title")).toBe("b.typ");
   });
 
   it("switching tabs does not save or block", async () => {

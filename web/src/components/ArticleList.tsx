@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { groupArticles } from "../lib/article-label";
 import { useStudioEvent } from "../lib/hooks";
+import { useLastEdit } from "../lib/last-edit";
 import { formatRoute } from "../lib/route";
 import { GitBadge } from "./GitBadge";
 import { useProjectGit } from "./useProjectGit";
@@ -10,6 +11,8 @@ export function ArticleList({ project }: { project: string }) {
   const [list, setList] = useState<{ path: string }[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const git = useProjectGit(project);
+  const last = useLastEdit();
+  const lastArticle = last?.project === project ? last.article : null;
 
   const reload = useCallback(() => {
     api.articles(project).then(
@@ -57,7 +60,10 @@ export function ArticleList({ project }: { project: string }) {
                     title={a.path}
                     aria-label={`${a.label.name}（${a.path}）`}
                   >
-                    <span className="list-row-title">{a.label.name}</span>
+                    <span className="list-row-title">
+                      {a.label.name}
+                      {a.path === lastArticle && <span className="pill last-pill">前回</span>}
+                    </span>
                     {a.label.file && <span className="list-row-sub">{a.label.file}</span>}
                   </a>
                 </li>
