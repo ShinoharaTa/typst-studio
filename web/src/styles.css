@@ -452,14 +452,17 @@ code {
   display: contents;
 }
 
-/* 2 ペイン（900px 以上） */
+/* 2 ペイン（900px 以上）。行の高さを .panes の高さに固定する。
+   auto のままだと行が中身（文書全体）の高さまで伸び、エディタがスクロールできなくなる */
 .editor-screen[data-wide="true"] .panes {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .editor-screen[data-wide="true"] .pane-edit {
   position: relative;
+  min-height: 0;
   border-right: 1px solid var(--border);
 }
 
@@ -528,12 +531,14 @@ code {
 .code-editor {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
 }
 
 .code-editor .cm-editor {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   height: 100%;
   background: var(--surface);
   font-size: 16px;
