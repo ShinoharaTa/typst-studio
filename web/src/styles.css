@@ -794,6 +794,15 @@ code {
   height: 0.9em;
 }
 
+/* 幅の狭い画面では lint の列を外すので、診断のある行は行の地の色で示す */
+.code-editor[data-compact="true"] .cm-diag-error {
+  background: var(--error-bg);
+}
+
+.code-editor[data-compact="true"] .cm-diag-warning {
+  background: var(--warn-bg);
+}
+
 /* 画像シートを開いている間は読み取り専用 */
 .code-editor[data-readonly="true"] .cm-editor {
   opacity: 0.65;

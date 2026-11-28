@@ -1,8 +1,10 @@
 import { defaultKeymap, history, historyKeymap, indentWithTab, redo, undo } from "@codemirror/commands";
 import { bracketMatching, indentOnInput } from "@codemirror/language";
 import { lintGutter, setDiagnostics, type Diagnostic as CmDiagnostic } from "@codemirror/lint";
-import { Compartment, EditorSelection, EditorState, type Text } from "@codemirror/state";
+import { Compartment, EditorSelection, EditorState, StateEffect, StateField, type Text } from "@codemirror/state";
 import {
+  Decoration,
+  type DecorationSet,
   drawSelection,
   EditorView,
   highlightActiveLine,
@@ -42,6 +44,33 @@ interface Props {
   onSave(): void;
   readOnly?: boolean;
   diagnostics?: LineDiagnostic[];
+  // 幅の狭い画面。lint の列を外し、診断のある行は行の地の色で示す（行番号は残す）
+  compact?: boolean;
+}
+
+// 診断のある行の印（行の地の色。compact のときだけ CSS で色を付ける）
+const setLineMarks = StateEffect.define<LineDiagnostic[]>();
+const lineMarks = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(deco, tr) {
+    let d = deco.map(tr.changes);
+    for (const e of tr.effects) if (e.is(setLineMarks)) d = buildLineMarks(tr.state.doc, e.value);
+    return d;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
+export function buildLineMarks(doc: Text, ds: LineDiagnostic[]): DecorationSet {
+  // 1 行に 1 つ。エラーを警告より優先する
+  const byLine = new Map<number, "error" | "warning">();
+  for (const d of ds) {
+    if (d.line < 1 || d.line > doc.lines) continue;
+    if (byLine.get(d.line) !== "error") byLine.set(d.line, d.severity);
+  }
+  const ranges = [...byLine.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([line, sev]) => Decoration.line({ class: `cm-diag-line cm-diag-${sev}` }).range(doc.line(line).from));
+  return Decoration.set(ranges);
 }
 
 function toCm(doc: Text, ds: LineDiagnostic[]): CmDiagnostic[] {
@@ -63,11 +92,13 @@ export const CodeEditor = forwardRef<CodeEditorHandle, Props>(function CodeEdito
   const propsRef = useRef(props);
   propsRef.current = props;
   const readOnly = useRef(new Compartment());
+  const gutter = useRef(new Compartment());
 
   const extensions = () => [
     lineNumbers(),
     highlightActiveLineGutter(),
-    lintGutter(),
+    gutter.current.of(propsRef.current.compact ? [] : lintGutter()),
+    lineMarks,
     history(),
     drawSelection(),
     indentOnInput(),
@@ -95,7 +126,9 @@ export const CodeEditor = forwardRef<CodeEditorHandle, Props>(function CodeEdito
   ];
 
   const applyDiagnostics = (v: EditorView) => {
-    v.dispatch(setDiagnostics(v.state, toCm(v.state.doc, propsRef.current.diagnostics ?? [])));
+    const ds = propsRef.current.diagnostics ?? [];
+    v.dispatch(setDiagnostics(v.state, toCm(v.state.doc, ds)));
+    v.dispatch({ effects: setLineMarks.of(ds) });
   };
 
   useEffect(() => {
@@ -114,6 +147,10 @@ export const CodeEditor = forwardRef<CodeEditorHandle, Props>(function CodeEdito
   useEffect(() => {
     if (view.current) applyDiagnostics(view.current);
   }, [props.diagnostics]);
+
+  useEffect(() => {
+    view.current?.dispatch({ effects: gutter.current.reconfigure(props.compact ? [] : lintGutter()) });
+  }, [props.compact]);
 
   useImperativeHandle(
     ref,
@@ -162,7 +199,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, Props>(function CodeEdito
     [],
   );
 
-  return <div className="code-editor" ref={host} data-readonly={props.readOnly ?? false} />;
+  return <div className="code-editor" ref={host} data-readonly={props.readOnly ?? false} data-compact={props.compact ?? false} />;
 });
 
 function roExt(ro: boolean) {

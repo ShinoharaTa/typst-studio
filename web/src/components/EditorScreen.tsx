@@ -45,6 +45,8 @@ export function EditorScreen({ route }: { route: EditRoute }) {
   const { project, article, file, tab } = route;
   // 幅 900px 以上は 2 ペイン（左: 編集、右: プレビュー / 本 / 画像）。それ未満は 1 ペイン + 下部タブ
   const wide = useMedia("(min-width: 900px)");
+  // 幅 600px 未満（スマホ）。エディタの左の余白を詰める
+  const narrow = useMedia("(max-width: 599.98px)");
   const pageVisible = usePageVisible();
   const git = useProjectGit(project);
   // 記事の名前（ディレクトリ名）を出すために一覧を 1 回読む。読めるまでは親ディレクトリ名
@@ -340,6 +342,7 @@ export function EditorScreen({ route }: { route: EditRoute }) {
             memory.current?.changed(() => doc.toString());
           }}
           readOnly={locked}
+          compact={narrow}
           diagnostics={lineDiags}
           onCursor={(line, character) => {
             cursor.current = { line, character };
