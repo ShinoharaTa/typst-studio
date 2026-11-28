@@ -204,7 +204,7 @@ describe("leaving the editor", () => {
     await go("#/p/sample-book");
     root = createRoot(host);
     await act(async () => root!.render(<App />));
-    await until(() => !!host.querySelector(".list-row"), "article list");
+    await until(() => !!host.querySelector("[data-slot=list-item]"), "article list");
     await go("#/p/sample-book/edit/a.typ");
     await until(() => !!host.querySelector(".cm-editor") && docText() === "= A\n", "file loaded");
     const len = window.history.length;

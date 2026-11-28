@@ -6,6 +6,12 @@ import { useStudioEvent } from "../lib/hooks";
 import { usePref } from "../lib/prefs";
 import { AutoBuild, isBuildInput } from "../lib/schedule";
 import { PdfViewer } from "./PdfViewer";
+import { Alert, AlertText } from "./ui/alert";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { Checkbox, Label, NativeSelect } from "./ui/input";
+import { PanelBar } from "./ui/panel";
+import { cn } from "../lib/cn";
 
 // 本全体のプレビュー（= 検証ビルド。spec 4.6 / 3.3.4）
 export function BookPane(props: {
@@ -85,11 +91,11 @@ export function BookPane(props: {
   useEffect(() => onDiagnostics(diags), [diags, onDiagnostics]);
 
   return (
-    <div className="book-pane">
+    <div className="flex min-h-0 flex-1 flex-col bg-card">
       {/* 1 行目はプロファイルとビルドだけ（スマホで PDF の場所を空ける）。ダウンロードは PDF のバー、自動ビルドは状態の行へ */}
-      <div className="pane-bar book-bar">
-        <select
-          className="select"
+      <PanelBar className="book-bar flex-nowrap">
+        <NativeSelect
+          className="flex-1"
           value={profile ?? ""}
           onChange={(e) => setProfile(e.target.value)}
           aria-label="プロファイル"
@@ -100,28 +106,28 @@ export function BookPane(props: {
               {p}
             </option>
           ))}
-        </select>
-        <button type="button" className="btn btn-primary" onClick={() => void build()} disabled={!profile}>
+        </NativeSelect>
+        <Button variant="primary" className="flex-none" onClick={() => void build()} disabled={!profile}>
           {status?.state === "running" ? "ビルド中…" : status?.state === "queued" ? "待ち 1 件" : "ビルド"}
-        </button>
-      </div>
+        </Button>
+      </PanelBar>
 
-      <div className="book-status">
+      <div className="book-status flex flex-none flex-nowrap items-center gap-x-2 gap-y-1 px-3 pb-1.5">
         <BuildSummary status={status} />
-        {status?.stale && <span className="badge warn">未反映の変更あり</span>}
-        <label className="check book-auto">
-          <input
-            type="checkbox"
-            checked={autoOn}
-            onChange={(e) => setAutoPref(e.target.checked ? "on" : "off")}
-          />
+        {status?.stale && (
+          <Badge variant="warning" className="flex-none">
+            未反映の変更あり
+          </Badge>
+        )}
+        <Label className="ml-auto flex-none">
+          <Checkbox checked={autoOn} onChange={(e) => setAutoPref(e.target.checked ? "on" : "off")} />
           自動ビルド
-        </label>
+        </Label>
       </div>
 
-      {error && <p className="notice error">{error}</p>}
+      {error && <AlertText variant="destructive">{error}</AlertText>}
       {nomem && (
-        <div className="notice error">
+        <Alert variant="destructive">
           <p>
             空きメモリが足りないのでビルドできません
             {nomem.available !== undefined && nomem.required !== undefined
@@ -129,18 +135,18 @@ export function BookPane(props: {
               : ""}
             。
           </p>
-          <button type="button" className="btn" onClick={() => void build(true)}>
+          <Button variant="surface" onClick={() => void build(true)}>
             プレビューを止めてビルド
-          </button>
-        </div>
+          </Button>
+        </Alert>
       )}
 
       {diags.length > 0 && (
-        <details className="diags" open={last ? !last.ok : false}>
-          <summary>
+        <details className="mx-2 mb-2 max-h-[35%] flex-none overflow-y-auto" open={last ? !last.ok : false}>
+          <summary className="flex min-h-11 cursor-pointer items-center rounded-box bg-secondary px-3">
             診断 {diags.length} 件（エラー {diags.filter((d) => d.severity === "error").length}）
           </summary>
-          <ul className="diag-list">
+          <ul className="mt-1 flex flex-col gap-1">
             {diags.map((d, i) => (
               <li key={i}>
                 <DiagRow d={d} onGoto={props.onGoto} />
@@ -190,7 +196,11 @@ function BuildSummary({ status }: { status: BuildStatus | null }) {
   return (
     <button
       type="button"
-      className={failed ? "book-summary small error" : "book-summary small"}
+      className={cn(
+        "book-summary min-h-11 min-w-0 flex-[0_1_auto] text-left text-sm",
+        expanded ? "overflow-hidden wrap-anywhere" : "truncate",
+        failed && "text-destructive",
+      )}
       data-expanded={expanded}
       aria-expanded={expanded}
       title={text}
@@ -201,18 +211,27 @@ function BuildSummary({ status }: { status: BuildStatus | null }) {
   );
 }
 
+// 診断の 1 件（パネルの上の箱）
+const DIAG = "flex w-full min-h-11 flex-wrap gap-x-2 gap-y-0.5 rounded-box bg-secondary px-3 py-2 text-left text-sm wrap-anywhere";
+
 function DiagRow({ d, onGoto }: { d: Diagnostic; onGoto(file: string, line: number, column: number): void }) {
   const where = d.file ? `${d.file}${d.line ? `:${d.line}` : ""}${d.column ? `:${d.column}` : ""}` : "";
   const body = (
     <>
-      <span className={d.severity === "error" ? "diag-sev error" : "diag-sev warn"}>{d.severity === "error" ? "エラー" : "警告"}</span>
-      {where && <span className="diag-where">{where}</span>}
-      <span className="diag-msg">{d.message}</span>
+      <span className={cn("font-semibold", d.severity === "error" ? "text-destructive" : "text-warning")}>
+        {d.severity === "error" ? "エラー" : "警告"}
+      </span>
+      {where && <span className="font-mono text-primary">{where}</span>}
+      <span className="basis-full">{d.message}</span>
     </>
   );
-  if (!d.file || !d.line) return <div className="diag">{body}</div>;
+  if (!d.file || !d.line) return <div className={DIAG}>{body}</div>;
   return (
-    <button type="button" className="diag diag-link" onClick={() => onGoto(d.file!, d.line!, d.column ?? 1)}>
+    <button
+      type="button"
+      className={cn(DIAG, "transition-colors duration-140 active:bg-secondary-press hover:bg-secondary-press")}
+      onClick={() => onGoto(d.file!, d.line!, d.column ?? 1)}
+    >
       {body}
     </button>
   );

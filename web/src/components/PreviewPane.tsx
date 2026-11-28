@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import type { PreviewStatus } from "../api/types";
 import { articleTitle, type ArticleCtx } from "../lib/article-label";
+import { Alert, AlertText } from "./ui/alert";
+import { Button } from "./ui/button";
 
 // 記事プレビュー（tinymist を /preview/ で中継したもの）。タブを切り替えてもアンマウントしない
 export function PreviewPane(props: {
@@ -20,46 +22,46 @@ export function PreviewPane(props: {
   let notice: ReactNode = null;
   if (props.error) {
     notice = (
-      <div className="notice error">
+      <Alert variant="destructive">
         <p>プレビューを開始できません: {props.error}</p>
-        <button type="button" className="btn" onClick={props.onStart}>
+        <Button variant="surface" onClick={props.onStart}>
           もう一度
-        </button>
-      </div>
+        </Button>
+      </Alert>
     );
   } else if (props.starting || status?.state === "starting") {
-    notice = <p className="notice muted">プレビューを起動中…</p>;
+    notice = <AlertText className="text-muted-foreground">プレビューを起動中…</AlertText>;
   } else if (status && status.state === "running" && !mine) {
     notice = (
-      <div className="notice">
+      <Alert>
         <p>プレビューは別の記事（{status.project} / {status.article ? articleTitle(status.article, props.articleCtx) : ""}）を表示中です。</p>
-        <button type="button" className="btn" onClick={props.onStart}>
+        <Button variant="surface" onClick={props.onStart}>
           この記事で開く
-        </button>
-      </div>
+        </Button>
+      </Alert>
     );
   } else if (status && (status.state === "stopped" || status.state === "stopping")) {
     notice = (
-      <div className="notice">
+      <Alert>
         <p>プレビューは停止しています{status.lastError ? `（${status.lastError}）` : ""}。</p>
-        <button type="button" className="btn" onClick={props.onStart}>
+        <Button variant="surface" onClick={props.onStart}>
           再開
-        </button>
-      </div>
+        </Button>
+      </Alert>
     );
   }
 
   return (
-    <div className="preview-pane">
+    <div className="relative flex min-h-0 flex-1 flex-col">
       {props.compile && !props.compile.ok && running && (
-        <p className="preview-compile error" role="status">
+        <p className="m-2 max-h-[30%] overflow-y-auto rounded-box bg-destructive-soft px-3 py-1.5 text-sm text-destructive wrap-anywhere" role="status">
           コンパイルエラー{props.compile.message ? `: ${props.compile.message}` : ""}
         </p>
       )}
       {notice}
       {running && (
         // startedAt が変われば（起動し直したら）読み込み直す
-        <iframe key={status?.startedAt ?? ""} className="preview-frame" src="/preview/" title="記事プレビュー" />
+        <iframe key={status?.startedAt ?? ""} className="w-full flex-1 bg-paper" src="/preview/" title="記事プレビュー" />
       )}
     </div>
   );

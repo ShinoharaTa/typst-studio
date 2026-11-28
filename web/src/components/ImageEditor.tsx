@@ -3,11 +3,26 @@ import { toast } from "sonner";
 import { api, ApiError } from "../api/client";
 import type { ImageCall, ImageSet } from "../api/types";
 import { LatestOnly } from "../lib/schedule";
+import { cn } from "../lib/cn";
 import { formatLength, isValidLength, parseLength, toMm, type Unit } from "../lib/units";
+import { AlertText } from "./ui/alert";
+import { Button } from "./ui/button";
+import { Field, FieldError, FieldLabel, FieldLegend, FieldSet, Input, Slider } from "./ui/input";
+import { SegmentGroup, SegmentItem } from "./ui/segment";
 
 // 画像 1 つの width / height / alt の編集（spec 4.4 / 4.7 段階 2）
 //   操作中は PATCH dryRun → /api/preview/memory でプレビューだけ追従させ、ファイルは書かない。
 //   「適用」で初めて書き込む。「取り消し」はメモリ上の内容を捨ててディスクの内容に戻す
+
+// 画像のサムネイル（一覧の行・シートの見出し）。読めない画像は「?」
+export function ImageThumb({ src, className }: { src: string | null; className?: string }) {
+  const box = cn("size-12 flex-none rounded-thumb bg-card", className);
+  return src ? (
+    <img className={cn(box, "object-contain")} src={src} alt="" loading="lazy" />
+  ) : (
+    <span className={cn(box, "flex items-center justify-center text-muted-foreground")}>?</span>
+  );
+}
 
 export interface ImageTarget {
   call: ImageCall;
@@ -57,6 +72,9 @@ function buildSet(c: ImageCall, d: Draft): ImageSet | null {
   if ((d.alt || null) !== c.alt) set.alt = d.alt || null;
   return set;
 }
+
+const EDITOR = "flex flex-col gap-4";
+const ACTIONS = "flex justify-end gap-2";
 
 export function ImageEditor(props: {
   project: string;
@@ -192,27 +210,25 @@ export function ImageEditor(props: {
 
   const thumb = call.resolved ? api.rawUrl(project, call.resolved) : null;
   const head = (
-    <div className="img-head">
-      {thumb ? <img className="img-thumb" src={thumb} alt="" loading="lazy" /> : <div className="img-thumb img-thumb-none">?</div>}
-      <div className="img-head-text">
-        <div className="img-src">{call.src ?? "（式）"}</div>
-        <button type="button" className="link-btn" onClick={() => void gotoSource()}>
+    <div className="flex min-w-0 items-center gap-3">
+      <ImageThumb src={thumb} className="size-16 bg-secondary" />
+      <div className="min-w-0">
+        <div className="font-mono text-sm wrap-anywhere">{call.src ?? "（式）"}</div>
+        <Button variant="link" size="inline" className="whitespace-normal" onClick={() => void gotoSource()}>
           ソースへ（{call.path}:{call.line}）
-        </button>
-        {call.nearest && <div className="muted small">タップした位置に近い画像</div>}
+        </Button>
+        {call.nearest && <div className="text-sm text-muted-foreground">タップした位置に近い画像</div>}
       </div>
     </div>
   );
 
   if (!call.editable) {
     return (
-      <div className="img-editor">
+      <div className={EDITOR}>
         {head}
-        <p className="notice">編集不可（第 1 引数がリテラルでない、またはテンプレート内の画像）</p>
-        <div className="sheet-actions">
-          <button type="button" className="btn" onClick={() => props.onDone()}>
-            閉じる
-          </button>
+        <AlertText className="m-0">編集不可（第 1 引数がリテラルでない、またはテンプレート内の画像）</AlertText>
+        <div className={ACTIONS}>
+          <Button onClick={() => props.onDone()}>閉じる</Button>
         </div>
       </div>
     );
@@ -223,20 +239,26 @@ export function ImageEditor(props: {
   const heightInvalid = draft.height.trim() !== "" && !isValidLength(draft.height.trim());
 
   return (
-    <div className="img-editor">
+    <div className={EDITOR}>
       {head}
-      {loadError && <p className="notice error">{loadError}</p>}
-      {followError && <p className="notice error">{followError}</p>}
+      {loadError && (
+        <AlertText variant="destructive" className="m-0">
+          {loadError}
+        </AlertText>
+      )}
+      {followError && (
+        <AlertText variant="destructive" className="m-0">
+          {followError}
+        </AlertText>
+      )}
 
-      <fieldset className="field">
-        <legend className="field-label">幅（width）</legend>
-        <div className="seg" role="group" aria-label="単位">
+      <FieldSet>
+        <FieldLegend>幅（width）</FieldLegend>
+        <SegmentGroup aria-label="単位">
           {(["%", "mm"] as const).map((u) => (
-            <button
+            <SegmentItem
               key={u}
-              type="button"
-              className="seg-btn"
-              aria-pressed={draft.widthOn && draft.unit === u}
+              pressed={draft.widthOn && draft.unit === u}
               onClick={() => {
                 // 単位を変えるときは、分かる範囲で同じ大きさに換算する
                 const v = u === "mm" && mm !== null ? Math.round(mm) : draft.unit === u ? draft.value : u === "%" ? 100 : 80;
@@ -244,18 +266,16 @@ export function ImageEditor(props: {
               }}
             >
               {u}
-            </button>
+            </SegmentItem>
           ))}
-          <button type="button" className="seg-btn" aria-pressed={!draft.widthOn} onClick={() => update({ widthOn: false })}>
+          <SegmentItem pressed={!draft.widthOn} onClick={() => update({ widthOn: false })}>
             指定なし
-          </button>
-        </div>
+          </SegmentItem>
+        </SegmentGroup>
         {draft.widthOn && (
-          <div className="slider-row">
+          <div className="flex items-center gap-3">
             {sliderUnit && (
-              <input
-                type="range"
-                className="slider"
+              <Slider
                 min={SLIDER[sliderUnit].min}
                 max={SLIDER[sliderUnit].max}
                 step={SLIDER[sliderUnit].step}
@@ -264,9 +284,10 @@ export function ImageEditor(props: {
                 aria-label="幅"
               />
             )}
-            <label className="num">
-              <input
+            <label className="flex flex-none items-center gap-1">
+              <Input
                 type="number"
+                className="w-[5.5em] px-2"
                 inputMode="decimal"
                 min={0}
                 step="any"
@@ -279,41 +300,35 @@ export function ImageEditor(props: {
           </div>
         )}
         {draft.widthOn && draft.unit !== "%" && mm !== null && draft.unit !== "mm" && (
-          <p className="muted small">≒ {Math.round(mm * 10) / 10} mm</p>
+          <p className="text-sm text-muted-foreground">≒ {Math.round(mm * 10) / 10} mm</p>
         )}
-      </fieldset>
+      </FieldSet>
 
-      <label className="field">
-        <span className="field-label">高さ（height）</span>
-        <input
-          type="text"
-          className={heightInvalid ? "input invalid" : "input"}
+      <Field>
+        <FieldLabel>高さ（height）</FieldLabel>
+        <Input
+          aria-invalid={heightInvalid}
           placeholder="例: 8em / 40mm（空欄で指定なし）"
           value={draft.height}
           onChange={(e) => update({ height: e.target.value })}
           autoCapitalize="off"
           autoCorrect="off"
         />
-        {heightInvalid && <span className="small error">数値 + 単位（% mm cm pt em in）で書いてください</span>}
-      </label>
+        {heightInvalid && <FieldError>数値 + 単位（% mm cm pt em in）で書いてください</FieldError>}
+      </Field>
 
-      <label className="field">
-        <span className="field-label">代替テキスト（alt）</span>
-        <input type="text" className="input" value={draft.alt} onChange={(e) => update({ alt: e.target.value })} />
-      </label>
+      <Field>
+        <FieldLabel>代替テキスト（alt）</FieldLabel>
+        <Input value={draft.alt} onChange={(e) => update({ alt: e.target.value })} />
+      </Field>
 
-      <div className="sheet-actions">
-        <button type="button" className="btn" onClick={() => void cancel()} disabled={busy}>
+      <div className={ACTIONS}>
+        <Button onClick={() => void cancel()} disabled={busy}>
           取り消し
-        </button>
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={() => void apply()}
-          disabled={busy || !set || !rev || Object.keys(set).length === 0}
-        >
+        </Button>
+        <Button variant="primary" onClick={() => void apply()} disabled={busy || !set || !rev || Object.keys(set).length === 0}>
           適用
-        </button>
+        </Button>
       </div>
     </div>
   );

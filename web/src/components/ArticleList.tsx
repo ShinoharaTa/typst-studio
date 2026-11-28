@@ -5,6 +5,10 @@ import { useStudioEvent } from "../lib/hooks";
 import { useLastEdit } from "../lib/last-edit";
 import { formatRoute } from "../lib/route";
 import { GitBadge } from "./GitBadge";
+import { AlertText } from "./ui/alert";
+import { Badge } from "./ui/badge";
+import { buttonVariants } from "./ui/button";
+import { List, ListHeading, ListItemDescription, ListItemLink, ListItemTitle, ListMain } from "./ui/list";
 import { useProjectGit } from "./useProjectGit";
 
 export function ArticleList({ project }: { project: string }) {
@@ -36,42 +40,45 @@ export function ArticleList({ project }: { project: string }) {
   return (
     <div className="screen">
       <header className="topbar">
-        <a className="icon-btn" href={formatRoute({ view: "projects" })} aria-label="プロジェクト一覧へ">
+        <a className={buttonVariants({ variant: "ghost", size: "icon" })} href={formatRoute({ view: "projects" })} aria-label="プロジェクト一覧へ">
           ‹
         </a>
         <div className="topbar-text">
           <h1 className="topbar-title">{project}</h1>
-          {git && <GitBadge git={git} compact />}
+          {git && <GitBadge git={git} compact surface />}
         </div>
       </header>
-      <main className="list-main">
-        {error && <p className="notice error">{error}</p>}
-        {list === null && !error && <p className="muted pad">読み込み中…</p>}
-        {list?.length === 0 && <p className="muted pad">記事がありません（articles.glob に一致するファイルが無い）</p>}
+      <ListMain>
+        {error && <AlertText variant="destructive">{error}</AlertText>}
+        {list === null && !error && <p className="p-4 text-muted-foreground">読み込み中…</p>}
+        {list?.length === 0 && <p className="p-4 text-muted-foreground">記事がありません（articles.glob に一致するファイルが無い）</p>}
         {groups.map((g, i) => (
-          <section key={`${i}:${g.group.join("/")}`} className="list-section">
-            {g.heading && <h2 className="list-heading">{g.heading}</h2>}
-            <ul className="list">
+          <section key={`${i}:${g.group.join("/")}`} className="not-first:mt-1.5">
+            {g.heading && <ListHeading className={i === 0 ? "mt-2" : undefined}>{g.heading}</ListHeading>}
+            <List>
               {g.items.map((a) => (
                 <li key={a.path}>
-                  <a
-                    className="list-row"
+                  <ListItemLink
                     href={formatRoute({ view: "edit", project, article: a.path, file: a.path, tab: "edit" })}
                     title={a.path}
                     aria-label={`${a.label.name}（${a.path === lastArticle ? "前回・" : ""}${a.path}）`}
                   >
-                    <span className="list-row-title">
+                    <ListItemTitle>
                       {a.label.name}
-                      {a.path === lastArticle && <span className="pill last-pill">前回</span>}
-                    </span>
-                    {a.label.file && <span className="list-row-sub">{a.label.file}</span>}
-                  </a>
+                      {a.path === lastArticle && (
+                        <Badge variant="accent" className="last-pill ml-2 align-[2px]">
+                          前回
+                        </Badge>
+                      )}
+                    </ListItemTitle>
+                    {a.label.file && <ListItemDescription>{a.label.file}</ListItemDescription>}
+                  </ListItemLink>
                 </li>
               ))}
-            </ul>
+            </List>
           </section>
         ))}
-      </main>
+      </ListMain>
     </div>
   );
 }

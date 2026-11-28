@@ -285,4 +285,41 @@ describe("EditToolbar", () => {
       vi.useRealTimers();
     }
   });
+  it("styles the keys from the design system: box-colored keys on the panel, no feedback while aria-disabled, Save at a fixed size", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const render = (p: { disabled?: boolean; saveDisabled?: boolean }) =>
+      act(async () =>
+        root.render(
+          <EditToolbar onSave={() => undefined} onUndo={() => undefined} onInsert={() => undefined} saveDisabled={p.saveDisabled ?? false} disabled={p.disabled} />,
+        ),
+      );
+    await render({});
+    const bar = host.querySelector<HTMLElement>(".edit-toolbar")!;
+    const tokens = (el: Element) => el.className.split(/\s+/);
+    expect(tokens(bar)).toContain("bg-card");
+    for (const b of host.querySelectorAll("button")) {
+      // 押した・ホバーの反応は、disabled と aria-disabled のキーには出さない
+      for (const t of tokens(b).filter((t) => /(^|:)(hover|active):/.test(t))) expect(t, b.textContent!).toContain("not-aria-disabled:");
+      expect(tokens(b)).toContain("rounded-key");
+    }
+    for (const c of host.querySelectorAll(".tb-char")) {
+      expect(tokens(c)).toContain("bg-secondary");
+      expect(tokens(c)).toContain("flex-1");
+      expect(c.className).not.toMatch(/max-w-/);
+    }
+    const save = host.querySelector(".tb-save")!;
+    // 文字は px で固定・折り返さない。太さは全状態で同じ。未保存は塗りの primary にせず、accent の地に primary の文字
+    expect(tokens(save)).toEqual(expect.arrayContaining(["text-[14px]", "whitespace-nowrap", "font-semibold", "w-14"]));
+    expect(save.className).not.toMatch(/data-\[state=[a-z]+\]:font-/);
+    expect(tokens(save)).toEqual(expect.arrayContaining(["data-[state=dirty]:bg-accent", "data-[state=dirty]:text-primary"]));
+    expect(save.className).not.toMatch(/bg-primary/);
+    // 画像シートを開いている間は、保存もほかのキーと同じく薄くする
+    expect(tokens(save)).toContain("in-data-[locked=true]:opacity-50");
+    await render({ disabled: true });
+    expect(bar.dataset.locked).toBe("true");
+    await act(async () => root.unmount());
+    host.remove();
+  });
 });

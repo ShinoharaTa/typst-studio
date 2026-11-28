@@ -6,6 +6,8 @@ import { useStudioEvent } from "../lib/hooks";
 import { useLastEdit } from "../lib/last-edit";
 import { formatRoute } from "../lib/route";
 import { GitBadge } from "./GitBadge";
+import { AlertText } from "./ui/alert";
+import { List, ListItemLink, ListItemTitle, ListMain } from "./ui/list";
 
 export function ProjectList() {
   const [list, setList] = useState<ProjectSummary[] | null>(null);
@@ -33,25 +35,25 @@ export function ProjectList() {
   return (
     <div className="screen">
       <header className="topbar">
-        <h1 className="topbar-title">プロジェクト</h1>
+        <h1 className="topbar-title px-2 text-lg font-bold">プロジェクト</h1>
       </header>
-      <main className="list-main project-list">
-        {error && <p className="notice error">{error}</p>}
-        {list === null && !error && <p className="muted pad">読み込み中…</p>}
-        {list?.length === 0 && <p className="muted pad">プロジェクトがありません</p>}
+      <ListMain>
+        {error && <AlertText variant="destructive">{error}</AlertText>}
+        {list === null && !error && <p className="p-4 text-muted-foreground">読み込み中…</p>}
+        {list?.length === 0 && <p className="p-4 text-muted-foreground">プロジェクトがありません</p>}
         {list && <ContinueCard projects={list.map((p) => p.name)} />}
-        <ul className="list">
+        <List className="gap-2">
           {list?.map((p) => (
             <li key={p.name}>
-              <a className="list-row" href={formatRoute({ view: "articles", project: p.name })}>
-                <span className="list-row-title">{p.name}</span>
+              <ListItemLink size="lg" href={formatRoute({ view: "articles", project: p.name })}>
+                <ListItemTitle>{p.name}</ListItemTitle>
                 <GitBadge git={p} />
-                {p.error && <span className="list-row-error">設定エラー: {p.error}</span>}
-              </a>
+                {p.error && <span className="rounded-box bg-destructive-soft px-2.5 py-1.5 text-sm text-destructive">設定エラー: {p.error}</span>}
+              </ListItemLink>
             </li>
           ))}
-        </ul>
-      </main>
+        </List>
+      </ListMain>
     </div>
   );
 }
@@ -76,15 +78,17 @@ function ContinueCard({ projects }: { projects: string[] }) {
   if (!last || !project || !articles?.some((a) => a.path === last.article)) return null;
   const name = articleTitle(last.article, articleContext(articles.map((a) => a.path)));
   return (
-    <a
-      className="list-row continue-card"
+    <ListItemLink
+      size="lg"
+      className="continue-card mb-3"
       href={formatRoute({ view: "edit", project, article: last.article, file: last.file, tab: "edit" })}
       title={last.file}
     >
-      <span className="continue-label">続きから</span>
-      <span className="list-row-title">
+      {/* 地はほかの行と同じパネル色（背景との差を保つ）。強調は文字の色と矢印で出す。矢印は読み上げない */}
+      <span className="text-xs font-semibold text-primary before:content-['▶_'/'']">続きから</span>
+      <ListItemTitle>
         {project} / {name}
-      </span>
-    </a>
+      </ListItemTitle>
+    </ListItemLink>
   );
 }
