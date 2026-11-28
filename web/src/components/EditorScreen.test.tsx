@@ -280,6 +280,19 @@ describe("leaving the editor", () => {
     expect(host.querySelector(".last-pill")!.closest("a")!.getAttribute("title")).toBe("b.typ");
   });
 
+  it("the article pill brings you back from another file to the article", async () => {
+    await openEditor("a.typ");
+    await go("#/p/sample-book/edit/a.typ?file=b.typ");
+    await until(() => docText() === "= B\n", "b opened");
+    const pill = host.querySelector<HTMLButtonElement>(".article-pill")!;
+    expect(pill.textContent).toBe("記事: a");
+    await act(async () => pill.click());
+    for (let i = 0; i < 5; i++) await tick();
+    await until(() => docText() === "= A\n", "back to the article");
+    expect(window.location.hash).toBe("#/p/sample-book/edit/a.typ");
+    expect(host.querySelector(".article-pill")).toBeNull();
+  });
+
   it("switching tabs does not save or block", async () => {
     await openEditor();
     type("X");

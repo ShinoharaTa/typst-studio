@@ -568,8 +568,24 @@ code {
 }
 
 .article-pill {
+  position: relative;
+  border: 0;
   background: var(--panel);
-  color: var(--text);
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+/* 見た目は小さいピルのまま、押せる範囲を 44px 近くまで広げる */
+.article-pill::after {
+  content: "";
+  position: absolute;
+  inset: -12px -4px;
+}
+
+.article-pill:active {
+  background: var(--box-press);
 }
 
 .panes {

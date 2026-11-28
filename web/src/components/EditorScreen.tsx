@@ -436,7 +436,17 @@ export function EditorScreen({ route }: { route: EditRoute }) {
             )}
           </h1>
           <div className="topbar-sub">
-            {file !== article && <span className="pill article-pill">記事: {articleName.name}</span>}
+            {file !== article && (
+              // 記事以外のファイルを開いた後、記事のファイルへ戻る
+              <button
+                type="button"
+                className="pill article-pill"
+                onClick={() => navigate({ ...routeRef.current, file: article })}
+                aria-label={`記事 ${articleName.name} のファイルへ戻る`}
+              >
+                記事: {articleName.name}
+              </button>
+            )}
             {git && <GitBadge git={git} compact />}
             <span className={`save-state save-${snap.state}`}>{SAVE_LABEL[snap.state]}</span>
           </div>
