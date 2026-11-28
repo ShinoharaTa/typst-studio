@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { PreviewStatus } from "../api/types";
-import { articleLabel, type ArticleCtx } from "../lib/article-label";
+import { articleTitle, type ArticleCtx } from "../lib/article-label";
 
 // 記事プレビュー（tinymist を /preview/ で中継したもの）。タブを切り替えてもアンマウントしない
 export function PreviewPane(props: {
@@ -32,7 +32,7 @@ export function PreviewPane(props: {
   } else if (status && status.state === "running" && !mine) {
     notice = (
       <div className="notice">
-        <p>プレビューは別の記事（{status.project} / {status.article ? articleLabel(status.article, props.articleCtx).name : ""}）を表示中です。</p>
+        <p>プレビューは別の記事（{status.project} / {status.article ? articleTitle(status.article, props.articleCtx) : ""}）を表示中です。</p>
         <button type="button" className="btn" onClick={props.onStart}>
           この記事で開く
         </button>

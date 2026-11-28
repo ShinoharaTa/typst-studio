@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { articleContext, articleLabel, groupArticles } from "./article-label";
+import { articleContext, articleLabel, articleTitle, groupArticles } from "./article-label";
 
 const MIXED = [
   "articles/intro/article.typ",
@@ -11,7 +11,7 @@ const MIXED = [
 describe("articleLabel", () => {
   it("names articles by their directory and groups the middle levels", () => {
     const ctx = articleContext(MIXED);
-    expect(ctx).toEqual({ prefix: 1, sameFile: true });
+    expect(ctx).toMatchObject({ prefix: 1, sameFile: true });
     expect(articleLabel(MIXED[0], ctx)).toEqual({ name: "intro", group: [], file: null });
     expect(articleLabel(MIXED[1], ctx)).toEqual({ name: "setup", group: ["author-b"], file: null });
     expect(articleLabel(MIXED[2], ctx)).toEqual({ name: "tips", group: ["author-b"], file: null });
@@ -33,7 +33,7 @@ describe("articleLabel", () => {
 
   it("keeps at least one level for a single article", () => {
     const ctx = articleContext(["articles/intro/article.typ"]);
-    expect(ctx).toEqual({ prefix: 1, sameFile: true });
+    expect(ctx).toMatchObject({ prefix: 1, sameFile: true });
     expect(articleLabel("articles/intro/article.typ", ctx)).toEqual({ name: "intro", group: [], file: null });
   });
 
@@ -57,14 +57,50 @@ describe("articleLabel", () => {
   });
 });
 
+describe("duplicates", () => {
+  it("names articles by file when several share a directory", () => {
+    const paths = ["chapters/intro.typ", "chapters/setup.typ", "appendix/notes.typ"];
+    const ctx = articleContext(paths);
+    expect(articleLabel(paths[0], ctx)).toEqual({ name: "intro", group: ["chapters"], file: null });
+    expect(articleLabel(paths[1], ctx)).toEqual({ name: "setup", group: ["chapters"], file: null });
+    // 1 つしか無いディレクトリはディレクトリ名のまま
+    expect(articleLabel(paths[2], ctx)).toEqual({ name: "appendix", group: [], file: "notes.typ" });
+  });
+
+  it("adds the parents to a name that collides, for places outside the list", () => {
+    const paths = ["articles/a/x/article.typ", "articles/b/x/article.typ", "articles/b/y/article.typ"];
+    const ctx = articleContext(paths);
+    expect(articleLabel(paths[0], ctx).name).toBe("x");
+    expect(articleTitle(paths[0], ctx)).toBe("a / x");
+    expect(articleTitle(paths[1], ctx)).toBe("b / x");
+    expect(articleTitle(paths[2], ctx)).toBe("y");
+    expect(articleTitle(paths[0])).toBe("x");
+  });
+});
+
 describe("groupArticles", () => {
-  it("groups consecutive articles with the same heading, keeping the order", () => {
+  it("groups by heading in path order, with headless articles last under 'その他'", () => {
     const g = groupArticles(MIXED.map((path) => ({ path })));
-    expect(g.map((x) => [x.group.join(" / "), x.items.map((i) => i.label.name)])).toEqual([
-      ["", ["intro"]],
-      ["author-b", ["setup", "tips"]],
+    expect(g.map((x) => [x.heading, x.items.map((i) => i.label.name)])).toEqual([
       ["a / b", ["c"]],
+      ["author-b", ["setup", "tips"]],
+      ["その他", ["intro"]],
     ]);
+  });
+
+  it("merges a group that is split in the API order and keeps the item order", () => {
+    const g = groupArticles(
+      ["articles/g1/x/article.typ", "articles/top/article.typ", "articles/g1/a/article.typ"].map((path) => ({ path })),
+    );
+    expect(g.map((x) => [x.heading, x.items.map((i) => i.label.name)])).toEqual([
+      ["g1", ["x", "a"]],
+      ["その他", ["top"]],
+    ]);
+  });
+
+  it("uses no heading at all when no article has one", () => {
+    const g = groupArticles(["articles/a/article.typ", "articles/b/article.typ"].map((path) => ({ path })));
+    expect(g.map((x) => x.heading)).toEqual([null]);
   });
 
   it("returns nothing for no articles", () => {

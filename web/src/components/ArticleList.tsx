@@ -50,7 +50,7 @@ export function ArticleList({ project }: { project: string }) {
         {list?.length === 0 && <p className="muted pad">記事がありません（articles.glob に一致するファイルが無い）</p>}
         {groups.map((g, i) => (
           <section key={`${i}:${g.group.join("/")}`} className="list-section">
-            {g.group.length > 0 && <h2 className="list-heading">{g.group.join(" / ")}</h2>}
+            {g.heading && <h2 className="list-heading">{g.heading}</h2>}
             <ul className="list">
               {g.items.map((a) => (
                 <li key={a.path}>
@@ -58,7 +58,7 @@ export function ArticleList({ project }: { project: string }) {
                     className="list-row"
                     href={formatRoute({ view: "edit", project, article: a.path, file: a.path, tab: "edit" })}
                     title={a.path}
-                    aria-label={`${a.label.name}（${a.path}）`}
+                    aria-label={`${a.label.name}（${a.path === lastArticle ? "前回・" : ""}${a.path}）`}
                   >
                     <span className="list-row-title">
                       {a.label.name}

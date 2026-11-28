@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { ProjectSummary } from "../api/types";
-import { articleContext, articleLabel } from "../lib/article-label";
+import { articleContext, articleTitle } from "../lib/article-label";
 import { useStudioEvent } from "../lib/hooks";
 import { useLastEdit } from "../lib/last-edit";
 import { formatRoute } from "../lib/route";
@@ -74,7 +74,7 @@ function ContinueCard({ projects }: { projects: string[] }) {
     };
   }, [project]);
   if (!last || !project || !articles?.some((a) => a.path === last.article)) return null;
-  const name = articleLabel(last.article, articleContext(articles.map((a) => a.path))).name;
+  const name = articleTitle(last.article, articleContext(articles.map((a) => a.path)));
   return (
     <a
       className="list-row continue-card"
