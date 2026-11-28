@@ -342,8 +342,15 @@ export function EditorScreen({ route }: { route: EditRoute }) {
       </div>
       <EditToolbar
         onSave={save}
-        onUndo={() => editor.current?.undo()}
-        onInsert={(ch) => editor.current?.insert(ch)}
+        onUndo={() => {
+          editor.current?.undo();
+          // フォーカスが外れていても戻す（キーボードを閉じさせない）
+          editor.current?.focus();
+        }}
+        onInsert={(ch) => {
+          editor.current?.insert(ch);
+          editor.current?.focus();
+        }}
         saveDisabled={snap.state === "clean" || snap.state === "saving"}
         disabled={locked}
       />
