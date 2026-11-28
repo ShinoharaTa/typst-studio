@@ -1,0 +1,9 @@
+{
+  // Node の API でファイルを読むテスト（*.node.test.ts）だけの検査。画面のコード（tsconfig.json）とは型を分ける
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["src/**/*.node.test.ts"],
+  "exclude": []
+}

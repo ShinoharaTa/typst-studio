@@ -1,6 +1,5 @@
-/// <reference types="node" />
 // styles.css のトークンの検査（線を使わない取り決めと、文字のコントラスト）
-// （vitest は CSS の import を空にするので、ファイルを直接読む）
+// （vitest は CSS の import を空にするので、ファイルを直接読む。型は tsconfig.node-test.json で検査する）
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -39,6 +38,19 @@ describe("styles.css", () => {
     for (const block of [light, dark]) {
       expect(contrast(token(block, "hl-comment"), token(block, "panel"))).toBeGreaterThanOrEqual(4.5);
     }
+  });
+
+  it("gives no hover or press feedback to aria-disabled toolbar keys, and dims Save while locked", () => {
+    const hover = /\.tb-btn:hover[^{,]*/.exec(css)?.[0] ?? "";
+    expect(hover).toContain(':not([aria-disabled="true"])');
+    const presses = css.match(/\.tb-btn:active[^{,]*/g) ?? [];
+    expect(presses.length).toBeGreaterThan(0);
+    for (const p of presses) expect(p).toContain(':not([aria-disabled="true"])');
+    expect(css).toMatch(/\.edit-toolbar\[data-locked="true"\] \.tb-save \{\s*opacity: 0\.5;/);
+  });
+
+  it("does not read the arrow of 'continue' aloud", () => {
+    expect(css).toMatch(/\.continue-label::before \{\s*content: "▶ " \/ "";/);
   });
 
   it("keeps muted text at 4.5:1 or more on the pressed box color", () => {

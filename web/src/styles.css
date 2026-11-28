@@ -254,7 +254,7 @@ code {
 
 .btn:active,
 .icon-btn:active,
-.tb-btn:active,
+.tb-btn:active:not(:disabled):not([aria-disabled="true"]),
 .chip:active,
 .seg-btn:active {
   transform: scale(0.97);
@@ -344,7 +344,7 @@ code {
   .btn:hover:not(:disabled),
   .icon-btn:hover,
   .tab:hover,
-  .tb-btn:hover,
+  .tb-btn:hover:not(:disabled):not([aria-disabled="true"]),
   .list-row:hover,
   .img-row-main:hover,
   .diag-link:hover,
@@ -452,7 +452,7 @@ code {
 }
 
 .continue-label::before {
-  content: "▶ ";
+  content: "▶ " / "";
 }
 
 .last-pill {
@@ -836,7 +836,7 @@ code {
   font-size: 1.05rem;
 }
 
-.tb-btn:active:not(:disabled) {
+.tb-btn:active:not(:disabled):not([aria-disabled="true"]) {
   background: var(--box-press);
 }
 
@@ -865,11 +865,16 @@ code {
   background: transparent;
   color: var(--muted);
   font-weight: 400;
-  opacity: 1;
+  cursor: default;
 }
 
-/* カーソルのある行の診断。ツールバーの直上に、最大 2 行（タップで全文） */
-/* エディタの下端に重ねる（出入りでエディタの高さが変わらないように） */
+/* 画像シートを開いている間（エディタが読み取り専用）は、保存もほかのキーと同じく薄くする */
+.edit-toolbar[data-locked="true"] .tb-save {
+  opacity: 0.5;
+}
+
+/* カーソルのある行の診断。エディタの下端に重ねる（出入りでエディタの高さが変わらないように）。
+   最大 2 行、タップで全文 */
 .line-diag {
   position: absolute;
   left: var(--sp-2);

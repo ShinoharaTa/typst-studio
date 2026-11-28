@@ -51,6 +51,15 @@ describe("EditToolbar", () => {
     expect(save.getAttribute("aria-disabled")).toBe("false");
     await act(async () => save.click());
     expect(onSave).toHaveBeenCalledTimes(1);
+    // 読み取り専用（画像シート）のときは、ツールバーごと無効の印を付ける
+    expect(host.querySelector(".edit-toolbar")?.getAttribute("data-locked")).toBe("false");
+    await act(async () =>
+      root.render(<EditToolbar onSave={onSave} onUndo={() => undefined} onInsert={() => undefined} saveDisabled={false} disabled />),
+    );
+    expect(host.querySelector(".edit-toolbar")?.getAttribute("data-locked")).toBe("true");
+    expect(save.getAttribute("aria-disabled")).toBe("true");
+    await act(async () => save.click());
+    expect(onSave).toHaveBeenCalledTimes(1);
     await act(async () => root.unmount());
     host.remove();
   });

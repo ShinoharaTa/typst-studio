@@ -17,7 +17,7 @@ export function EditToolbar(props: {
   // 保存済みでも disabled にはしない（disabled のボタンは押したときにフォーカスを奪う）。aria-disabled で示す
   const saveOff = props.saveDisabled || props.disabled === true;
   return (
-    <div className="edit-toolbar" role="toolbar" aria-label="入力補助">
+    <div className="edit-toolbar" role="toolbar" aria-label="入力補助" data-locked={props.disabled === true}>
       <button type="button" className="tb-btn tb-save" {...hold} onClick={() => !saveOff && props.onSave()} aria-disabled={saveOff}>
         保存
       </button>

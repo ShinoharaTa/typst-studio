@@ -12,5 +12,7 @@
     "noUnusedLocals": true,
     "types": []
   },
-  "include": ["src"]
+  "include": ["src"],
+  // Node の API を使うテスト（*.node.test.ts）は tsconfig.node-test.json で検査する。画面のコードに Node の型を入れない
+  "exclude": ["src/**/*.node.test.ts"]
 }
