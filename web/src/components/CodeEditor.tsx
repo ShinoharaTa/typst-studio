@@ -1,6 +1,6 @@
 import { defaultKeymap, history, historyKeymap, indentWithTab, redo, undo } from "@codemirror/commands";
 import { bracketMatching, indentOnInput } from "@codemirror/language";
-import { lintGutter, setDiagnostics, type Diagnostic as CmDiagnostic } from "@codemirror/lint";
+import { forEachDiagnostic, lintGutter, setDiagnostics, type Diagnostic as CmDiagnostic } from "@codemirror/lint";
 import { Compartment, EditorSelection, EditorState, StateEffect, StateField, type Text } from "@codemirror/state";
 import {
   Decoration,
@@ -13,6 +13,7 @@ import {
   lineNumbers,
 } from "@codemirror/view";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { sortDiags, type CursorDiag } from "../lib/line-diag";
 import { codePointsToUtf16 } from "../lib/text";
 import { typstHighlight, typstLanguage } from "../lib/typst-lang";
 
@@ -41,11 +42,23 @@ interface Props {
   onDocChange(doc: Text): void;
   // 0 始まり。character は UTF-16
   onCursor(line: number, character: number): void;
+  // カーソルのある行に掛かる診断（変わったときだけ呼ぶ）
+  onCursorDiagnostics?(ds: CursorDiag[]): void;
   onSave(): void;
   readOnly?: boolean;
   diagnostics?: LineDiagnostic[];
   // 幅の狭い画面。lint の列を外し、診断のある行は行の地の色で示す（行番号は残す）
   compact?: boolean;
+}
+
+// カーソルのある行に掛かる診断を、lint の状態から引く（編集で位置がずれても lint が追従している）
+export function diagnosticsAtCursor(state: EditorState): CursorDiag[] {
+  const line = state.doc.lineAt(state.selection.main.head);
+  const out: CursorDiag[] = [];
+  forEachDiagnostic(state, (d, from, to) => {
+    if (from <= line.to && to >= line.from) out.push({ severity: d.severity === "error" ? "error" : "warning", message: d.message });
+  });
+  return sortDiags(out);
 }
 
 // 診断のある行の印（行の地の色。compact のときだけ CSS で色を付ける）
@@ -92,6 +105,14 @@ export const CodeEditor = forwardRef<CodeEditorHandle, Props>(function CodeEdito
   const propsRef = useRef(props);
   propsRef.current = props;
   const readOnly = useRef(new Compartment());
+  const lastCursorDiags = useRef("[]");
+  const emitCursorDiags = (state: EditorState) => {
+    const ds = diagnosticsAtCursor(state);
+    const key = JSON.stringify(ds);
+    if (key === lastCursorDiags.current) return;
+    lastCursorDiags.current = key;
+    propsRef.current.onCursorDiagnostics?.(ds);
+  };
   const gutter = useRef(new Compartment());
 
   const extensions = () => [
@@ -122,6 +143,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, Props>(function CodeEdito
         const line = u.state.doc.lineAt(head);
         propsRef.current.onCursor(line.number - 1, head - line.from);
       }
+      emitCursorDiags(u.state);
     }),
   ];
 

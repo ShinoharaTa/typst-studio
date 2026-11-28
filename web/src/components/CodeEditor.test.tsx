@@ -52,6 +52,35 @@ describe("CodeEditor line diagnostics", () => {
     await act(async () => root.unmount());
   });
 
+  it("reports the diagnostics of the cursor line from the lint state, following edits", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const ref = createRef<CodeEditorHandle>();
+    const root = createRoot(host);
+    const seen: string[][] = [];
+    const props = {
+      onDocChange: () => undefined,
+      onCursor: () => undefined,
+      onSave: () => undefined,
+      onCursorDiagnostics: (ds: { message: string }[]) => seen.push(ds.map((d) => d.message)),
+    };
+    await act(async () => root.render(<CodeEditor ref={ref} {...props} diagnostics={[]} />));
+    await act(async () => ref.current!.setDoc("a\nb\nc\n", { resetHistory: true }));
+    await act(async () => root.render(<CodeEditor ref={ref} {...props} diagnostics={DIAGS} />));
+    await act(async () => ref.current!.goto(2));
+    expect(seen.at(-1)).toEqual(["e", "w"]);
+    // 先頭に 2 行足すと、診断は 4 行目へずれる。2 行目（今は "a" の次の新しい行）には無い
+    await act(async () => {
+      ref.current!.goto(1);
+      ref.current!.insert("x\ny\n");
+    });
+    await act(async () => ref.current!.goto(2));
+    expect(seen.at(-1)).toEqual([]);
+    await act(async () => ref.current!.goto(4));
+    expect(seen.at(-1)).toEqual(["e", "w"]);
+    await act(async () => root.unmount());
+  });
+
   it("keeps the lint gutter on wide screens", async () => {
     const { host, root } = await render(false);
     expect(host.querySelector(".cm-gutter-lint")).not.toBeNull();

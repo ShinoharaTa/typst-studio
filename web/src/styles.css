@@ -730,6 +730,7 @@ code {
 }
 
 .editor-wrap {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -795,12 +796,13 @@ code {
 }
 
 /* 幅の狭い画面では lint の列を外すので、診断のある行は行の地の色で示す */
+/* 選択範囲（その下に描かれる）が見えるように半透明にする */
 .code-editor[data-compact="true"] .cm-diag-error {
-  background: var(--error-bg);
+  background: color-mix(in srgb, var(--error) 14%, transparent);
 }
 
 .code-editor[data-compact="true"] .cm-diag-warning {
-  background: var(--warn-bg);
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
 }
 
 /* 画像シートを開いている間は読み取り専用 */
@@ -863,9 +865,14 @@ code {
 }
 
 /* カーソルのある行の診断。ツールバーの直上に、最大 2 行（タップで全文） */
+/* エディタの下端に重ねる（出入りでエディタの高さが変わらないように） */
 .line-diag {
-  flex: none;
-  margin: 6px var(--sp-2) 0;
+  position: absolute;
+  left: var(--sp-2);
+  right: var(--sp-2);
+  bottom: var(--sp-2);
+  z-index: 3;
+  box-shadow: var(--shadow-float);
   padding: 6px var(--sp-3);
   min-height: var(--tap);
   border: 0;
