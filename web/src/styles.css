@@ -817,6 +817,39 @@ code {
   opacity: 1;
 }
 
+/* カーソルのある行の診断。ツールバーの直上に、最大 2 行（タップで全文） */
+.line-diag {
+  flex: none;
+  margin: 6px var(--sp-2) 0;
+  padding: 6px var(--sp-3);
+  min-height: var(--tap);
+  border: 0;
+  border-radius: var(--r-box);
+  background: var(--error-bg);
+  color: var(--error);
+  font-size: 0.85rem;
+  text-align: left;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.line-diag.warning {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+.line-diag[data-expanded="true"] {
+  -webkit-line-clamp: unset;
+  line-clamp: none;
+  max-height: 40dvh;
+  overflow-y: auto;
+}
+
 /* 「元に戻す」と記号キーの間は、線ではなく余白で分ける */
 .tb-gap {
   flex: none;

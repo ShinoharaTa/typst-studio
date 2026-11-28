@@ -5,6 +5,7 @@ import type { Diagnostic, ImageCall, Position, PreviewStatus } from "../api/type
 import { articleContext, articleLabel, type ArticleCtx } from "../lib/article-label";
 import { DocSession, type DocSnapshot } from "../lib/doc-session";
 import { useMedia, usePageVisible, useStudioEvent } from "../lib/hooks";
+import { diagsAtLine, diagSummary } from "../lib/line-diag";
 import { MemorySync } from "../lib/memory-sync";
 import { usePref } from "../lib/prefs";
 import { formatRoute, navigate, setLeaveGuard, type Route, type Tab } from "../lib/route";
@@ -314,6 +315,10 @@ export function EditorScreen({ route }: { route: EditRoute }) {
         .map((d) => ({ line: d.line!, column: d.column, severity: d.severity, message: d.message })),
     [bookDiags, file],
   );
+  const [cursorLine, setCursorLine] = useState(0);
+  const [diagExpanded, setDiagExpanded] = useState(false);
+  const cursorDiags = useMemo(() => diagsAtLine(lineDiags, cursorLine), [lineDiags, cursorLine]);
+  useEffect(() => setDiagExpanded(false), [cursorLine]);
   const conflict = snap.state === "conflict";
   const fileName = file.slice(file.lastIndexOf("/") + 1);
 
@@ -336,10 +341,24 @@ export function EditorScreen({ route }: { route: EditRoute }) {
           onCursor={(line, character) => {
             cursor.current = { line, character };
             scroll.schedule();
+            setCursorLine(line + 1);
           }}
           onSave={save}
         />
       </div>
+      {cursorDiags.length > 0 && (
+        // カーソルのある行の診断（タッチにはホバーが無いので、lint の吹き出しの代わりに出す）。タップで全文
+        <button
+          type="button"
+          className={`line-diag ${cursorDiags[0].severity}`}
+          data-expanded={diagExpanded}
+          onPointerDown={(e) => e.preventDefault()}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => setDiagExpanded((x) => !x)}
+        >
+          {diagSummary(cursorDiags)}
+        </button>
+      )}
       <EditToolbar
         onSave={save}
         onUndo={() => {
