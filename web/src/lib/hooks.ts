@@ -1,5 +1,6 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { StudioEvent } from "../api/types";
+import { KeyboardDetector } from "./keyboard";
 import { getSocket } from "./ws";
 
 // /api/ws の通知を受ける。fn は毎回の最新を使う
@@ -40,16 +41,18 @@ export function usePageVisible(): boolean {
   );
 }
 
-// ソフトキーボードで隠れる高さを --kb に入れる（iOS は表示領域が縮まず、visualViewport だけが縮む）
+// ソフトキーボードで隠れる高さを --kb に入れ（iOS は表示領域が縮まず、visualViewport だけが縮む）、
+// キーボードが出ている間は data-kb を付ける（Android も含めた判定は KeyboardDetector）
 export function useKeyboardInset(): void {
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
     const root = document.documentElement;
+    const detector = new KeyboardDetector();
     const update = () => {
       const inset = Math.max(0, window.innerHeight - (vv.height + vv.offsetTop));
       root.style.setProperty("--kb", `${Math.round(inset)}px`);
-      root.toggleAttribute("data-kb", inset > 80);
+      root.toggleAttribute("data-kb", detector.update(Math.round(vv.width), vv.height, inset));
     };
     update();
     vv.addEventListener("resize", update);

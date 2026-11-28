@@ -672,6 +672,27 @@ code {
   display: none;
 }
 
+/* キーボード表示中は、ヘッダを 1 行（題と保存状態）に詰める */
+:root[data-kb] .editor-screen .topbar {
+  min-height: 40px;
+}
+
+:root[data-kb] .editor-screen .topbar-text {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-1);
+}
+
+:root[data-kb] .editor-screen .topbar-sub .git,
+:root[data-kb] .editor-screen .topbar-sub .article-pill {
+  display: none;
+}
+
+:root[data-kb] .editor-screen .icon-btn {
+  height: 40px;
+}
+
 .editor-wrap {
   flex: 1;
   min-height: 0;
