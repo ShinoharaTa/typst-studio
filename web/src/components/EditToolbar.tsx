@@ -20,7 +20,7 @@ export function EditToolbar(props: {
       <button type="button" className="tb-btn" onPointerDown={keep} onClick={props.onUndo} aria-label="元に戻す" disabled={props.disabled}>
         ↶
       </button>
-      <span className="tb-sep" />
+      <span className="tb-gap" aria-hidden />
       {CHARS.map((c) => (
         <button key={c} type="button" className="tb-btn tb-char" onPointerDown={keep} onClick={() => props.onInsert(c)} disabled={props.disabled}>
           {c}

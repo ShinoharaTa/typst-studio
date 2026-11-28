@@ -33,7 +33,7 @@ export function ProjectList() {
       <header className="topbar">
         <h1 className="topbar-title">プロジェクト</h1>
       </header>
-      <main className="list-main">
+      <main className="list-main project-list">
         {error && <p className="notice error">{error}</p>}
         {list === null && !error && <p className="muted pad">読み込み中…</p>}
         {list?.length === 0 && <p className="muted pad">プロジェクトがありません</p>}
