@@ -1237,6 +1237,24 @@ code {
   transition: transform 300ms var(--ease-drawer);
 }
 
+/* 2 ペインでは、エディタのある側の半分に寄せる（プレビューを見ながら動かせるように） */
+.sheet-viewport[data-side] {
+  padding: 0 var(--sp-2);
+}
+
+.sheet-viewport[data-side="left"] {
+  justify-content: flex-start;
+}
+
+.sheet-viewport[data-side="right"] {
+  justify-content: flex-end;
+}
+
+.sheet-viewport[data-side] .sheet {
+  width: calc(50% - var(--sp-1));
+  max-width: none;
+}
+
 .sheet[data-starting-style],
 .sheet[data-ending-style] {
   transform: translateY(100%);

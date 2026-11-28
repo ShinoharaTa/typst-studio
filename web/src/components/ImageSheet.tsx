@@ -9,6 +9,8 @@ export function ImageSheet(props: {
   target: ImageTarget | null;
   onClose(applied?: { rev: string; call: ImageCall }): void;
   onGoto(call: ImageCall): void;
+  // 2 ペインのとき、エディタのある側（プレビューを隠さないように、その半分に寄せる）。1 ペインは null
+  side?: "left" | "right" | null;
 }) {
   // 閉じるアニメーションの間も中身を出しておく
   const [shown, setShown] = useState(props.target);
@@ -29,7 +31,7 @@ export function ImageSheet(props: {
       onOpenChangeComplete={(open) => !open && setShown(null)}
     >
       <Drawer.Portal>
-        <Drawer.Viewport className="sheet-viewport">
+        <Drawer.Viewport className="sheet-viewport" data-side={props.side ?? undefined}>
           <Drawer.Popup className="sheet">
             <div className="sheet-handle" aria-hidden />
             <Drawer.Title className="sheet-title">画像</Drawer.Title>

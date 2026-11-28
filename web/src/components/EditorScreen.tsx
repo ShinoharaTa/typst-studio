@@ -501,6 +501,7 @@ export function EditorScreen({ route }: { route: EditRoute }) {
 
       <ImageSheet
         project={project}
+        side={wide ? (swapped ? "right" : "left") : null}
         target={sheet}
         onClose={(applied) => {
           setSheet(null);
