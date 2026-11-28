@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "noUnusedLocals": true,
+    "types": []
+  },
+  "include": ["src"],
+  // Node の API を使うテスト（*.node.test.ts）は tsconfig.node-test.json で検査する。画面のコードに Node の型を入れない
+  "exclude": ["src/**/*.node.test.ts"]
+}

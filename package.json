@@ -7,12 +7,16 @@
   "engines": {
     "node": ">=24"
   },
+  "workspaces": [
+    "web"
+  ],
   "scripts": {
-    "build": "tsc -p server/tsconfig.json",
+    "build": "tsc -p server/tsconfig.json && npm run build -w web",
     "start": "node server/dist/main.js",
     "test": "vitest run"
   },
   "dependencies": {
+    "@fastify/static": "^11.0.0",
     "chokidar": "^5.0.0",
     "fastify": "^5.12.8",
     "smol-toml": "^1.9.1",

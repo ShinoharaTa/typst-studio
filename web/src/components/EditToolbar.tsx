@@ -1,0 +1,83 @@
+import { type SyntheticEvent, useEffect, useRef, useState } from "react";
+
+// ソフトキーボード表示中も見えるツールバー（spec 4.2）。押してもエディタのフォーカスを外さない。
+// Android の Chrome は pointerdown を止めても、後から合成する mousedown でフォーカスを移すことがあるので両方止める
+const keep = (e: SyntheticEvent) => e.preventDefault();
+export const TOOLBAR_CHARS = ["#", "[", "]", "(", ")", '"'];
+type SaveState = "clean" | "dirty" | "saving" | "conflict" | "error";
+// 「保存」は保存の状態も示す（ヘッダの状態と画面の上下に分かれないように）。幅を変えないよう 3 文字まで
+const SAVE_TEXT: Record<SaveState, string> = { clean: "保存済", dirty: "保存", saving: "保存中", conflict: "衝突", error: "再試行" };
+// 「保存中」は、保存がこれより長く掛かったときだけ出す（すぐ終わる保存で 3 つの文言が続けて入れ替わらないように）
+export const SAVING_SHOW_MS = 400;
+// 出した「保存中」は、保存が先に終わってもこの間は保つ（一瞬だけ出て消えないように）
+export const SAVING_MIN_MS = 500;
+
+// saving に入ってから SAVING_SHOW_MS の間は、その前の状態のまま見せる。出した後は SAVING_MIN_MS まで保つ
+function useShownState(state: SaveState): SaveState {
+  const before = useRef<SaveState>(state === "saving" ? "dirty" : state);
+  const [slow, setSlow] = useState(false);
+  const since = useRef(0);
+  useEffect(() => {
+    if (state === "saving") {
+      if (slow) return;
+      const t = setTimeout(() => {
+        since.current = Date.now();
+        setSlow(true);
+      }, SAVING_SHOW_MS);
+      return () => clearTimeout(t);
+    }
+    before.current = state;
+    if (!slow) return;
+    const left = since.current + SAVING_MIN_MS - Date.now();
+    if (left <= 0) {
+      setSlow(false);
+      return;
+    }
+    const t = setTimeout(() => setSlow(false), left);
+    return () => clearTimeout(t);
+  }, [state, slow]);
+  return slow ? "saving" : state === "saving" ? before.current : state;
+}
+
+export function EditToolbar(props: {
+  onSave(): void;
+  onUndo(): void;
+  onInsert(ch: string): void;
+  saveDisabled: boolean;
+  // 省略時は saveDisabled から（保存済み / 未保存）
+  saveState?: SaveState;
+  // 画像シートを開いている間など、エディタが読み取り専用
+  disabled?: boolean;
+}) {
+  const hold = { onPointerDown: keep, onMouseDown: keep };
+  // 保存済みでも disabled にはしない（disabled のボタンは押したときにフォーカスを奪う）。aria-disabled で示す
+  const actual = props.saveState ?? (props.saveDisabled ? "clean" : "dirty");
+  const state = useShownState(actual);
+  // 見た目が実際の状態とずれている間（「保存中」を出す前・保ちの間）は、見た目に合わせる
+  const saveOff =
+    props.disabled === true || (state === actual ? props.saveDisabled : state === "clean" || state === "saving" || state === "conflict");
+  return (
+    <div className="edit-toolbar" role="toolbar" aria-label="入力補助" data-locked={props.disabled === true}>
+      <button
+        type="button"
+        className="tb-btn tb-save"
+        data-state={state}
+        {...hold}
+        onClick={() => !saveOff && props.onSave()}
+        aria-disabled={saveOff}
+        aria-label={state === "error" ? "保存できませんでした。もう一度保存する" : undefined}
+      >
+        {SAVE_TEXT[state]}
+      </button>
+      <button type="button" className="tb-btn" {...hold} onClick={props.onUndo} aria-label="元に戻す" disabled={props.disabled}>
+        ↶
+      </button>
+      <span className="tb-gap" aria-hidden />
+      {TOOLBAR_CHARS.map((c) => (
+        <button key={c} type="button" className="tb-btn tb-char" {...hold} onClick={() => props.onInsert(c)} disabled={props.disabled}>
+          {c}
+        </button>
+      ))}
+    </div>
+  );
+}

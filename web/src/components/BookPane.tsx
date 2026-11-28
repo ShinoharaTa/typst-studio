@@ -1,0 +1,219 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+import { api, NoMemoryError } from "../api/client";
+import type { BuildStatus, Diagnostic } from "../api/types";
+import { useStudioEvent } from "../lib/hooks";
+import { usePref } from "../lib/prefs";
+import { AutoBuild, isBuildInput } from "../lib/schedule";
+import { PdfViewer } from "./PdfViewer";
+
+// 本全体のプレビュー（= 検証ビルド。spec 4.6 / 3.3.4）
+export function BookPane(props: {
+  project: string;
+  // 「本」タブが見えている（自動ビルドはこの間だけ）
+  active: boolean;
+  onGoto(file: string, line: number, column: number): void;
+  // 最後のビルドの診断（エディタの行表示に使う）
+  onDiagnostics(d: Diagnostic[]): void;
+}) {
+  const { project } = props;
+  const [profiles, setProfiles] = useState<string[]>([]);
+  const [profile, setProfile] = useState<string | null>(null);
+  const [status, setStatus] = useState<BuildStatus | null>(null);
+  const [nomem, setNomem] = useState<NoMemoryError | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const profileRef = useRef(profile);
+  profileRef.current = profile;
+  // 自動ビルドのオン・オフ（端末ごと。読めなければオン）
+  const [autoPref, setAutoPref] = usePref("typst-studio.autoBuild", "on");
+  const autoOn = autoPref !== "off";
+
+  useEffect(() => {
+    api.profiles(project).then(
+      (p) => {
+        setProfiles(p.profiles);
+        setProfile((cur) => cur ?? p.default ?? p.profiles[0] ?? null);
+      },
+      (e: Error) => setError(e.message),
+    );
+  }, [project]);
+
+  const loadStatus = useCallback(() => {
+    if (!profile) return;
+    api.buildStatus(project, profile).then(setStatus, (e: Error) => setError(e.message));
+  }, [project, profile]);
+  useEffect(loadStatus, [loadStatus]);
+
+  const build = useCallback(
+    async (stopPreview = false, manual = true) => {
+      const p = profileRef.current;
+      if (!p) return;
+      try {
+        const s = await api.build(project, p, stopPreview);
+        setNomem(null);
+        setError(null);
+        const { accepted, ...st } = s;
+        setStatus(st);
+        // 待ちが埋まっていると、何もせずに 202 と accepted: "dropped" が返る
+        if (manual && accepted === "dropped") toast.info("ほかのビルドの待ちがあるので受け付けられませんでした。終わってからもう一度押してください");
+        else if (manual && accepted === "queued") toast.info("今のビルドが終わったらもう一度ビルドします");
+      } catch (e) {
+        if (e instanceof NoMemoryError) setNomem(e);
+        else toast.error(`ビルドを始められません: ${(e as Error).message}`);
+      }
+    },
+    [project],
+  );
+
+  const auto = useMemo(() => new AutoBuild(() => void build(false, false)), [build]);
+  useEffect(() => () => auto.dispose(), [auto]);
+  useEffect(() => auto.setActive(props.active && autoOn), [auto, props.active, autoOn]);
+
+  useStudioEvent((e) => {
+    if (e.type === "build-status" && e.project === project && e.profile === profileRef.current) {
+      const { type: _t, ...s } = e;
+      setStatus(s);
+    } else if (e.type === "file-changed" && e.project === project && isBuildInput(e.path)) {
+      auto.notify();
+    }
+  }, loadStatus);
+
+  const last = status?.last;
+  const success = status?.lastSuccess;
+  const diags = useMemo(() => last?.diagnostics ?? [], [last]);
+  const onDiagnostics = props.onDiagnostics;
+  useEffect(() => onDiagnostics(diags), [diags, onDiagnostics]);
+
+  return (
+    <div className="book-pane">
+      {/* 1 行目はプロファイルとビルドだけ（スマホで PDF の場所を空ける）。ダウンロードは PDF のバー、自動ビルドは状態の行へ */}
+      <div className="pane-bar book-bar">
+        <select
+          className="select"
+          value={profile ?? ""}
+          onChange={(e) => setProfile(e.target.value)}
+          aria-label="プロファイル"
+          disabled={profiles.length === 0}
+        >
+          {profiles.map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+        </select>
+        <button type="button" className="btn btn-primary" onClick={() => void build()} disabled={!profile}>
+          {status?.state === "running" ? "ビルド中…" : status?.state === "queued" ? "待ち 1 件" : "ビルド"}
+        </button>
+      </div>
+
+      <div className="book-status">
+        <BuildSummary status={status} />
+        {status?.stale && <span className="badge warn">未反映の変更あり</span>}
+        <label className="check book-auto">
+          <input
+            type="checkbox"
+            checked={autoOn}
+            onChange={(e) => setAutoPref(e.target.checked ? "on" : "off")}
+          />
+          自動ビルド
+        </label>
+      </div>
+
+      {error && <p className="notice error">{error}</p>}
+      {nomem && (
+        <div className="notice error">
+          <p>
+            空きメモリが足りないのでビルドできません
+            {nomem.available !== undefined && nomem.required !== undefined
+              ? `（空き ${mb(nomem.available)} / 必要 ${mb(nomem.required)}）`
+              : ""}
+            。
+          </p>
+          <button type="button" className="btn" onClick={() => void build(true)}>
+            プレビューを止めてビルド
+          </button>
+        </div>
+      )}
+
+      {diags.length > 0 && (
+        <details className="diags" open={last ? !last.ok : false}>
+          <summary>
+            診断 {diags.length} 件（エラー {diags.filter((d) => d.severity === "error").length}）
+          </summary>
+          <ul className="diag-list">
+            {diags.map((d, i) => (
+              <li key={i}>
+                <DiagRow d={d} onGoto={props.onGoto} />
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      <PdfViewer url={success?.pdfUrl ?? null} active={props.active} downloadUrl={success?.pdfUrl ?? null} />
+    </div>
+  );
+}
+
+function mb(bytes: number): string {
+  return `${Math.round(bytes / 1024 / 1024)}MB`;
+}
+
+const REASON: Record<string, string> = {
+  error: "コンパイルエラー",
+  limit: "上限超過",
+  timeout: "時間切れ",
+  stopped: "停止",
+  nomem: "メモリ不足",
+};
+
+export function buildSummaryText(status: BuildStatus | null): string {
+  const last = status?.last;
+  if (!last) return status?.state === "running" ? "ビルド中…" : "ビルド履歴なし";
+  const time = new Date(last.finishedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const parts = [
+    last.ok ? "成功" : `失敗（${REASON[last.reason] ?? last.reason}）`,
+    time,
+    `${(last.durationMs / 1000).toFixed(1)} 秒`,
+    `警告 ${last.warnings}`,
+  ];
+  if (status?.state === "running") parts.push("ビルド中…");
+  if (status?.state === "queued") parts.push("待ち 1 件");
+  return parts.join(" ・ ");
+}
+
+// 状態の行は 1 行に収め、はみ出す分は省略する（タップで全文）
+function BuildSummary({ status }: { status: BuildStatus | null }) {
+  const [expanded, setExpanded] = useState(false);
+  const text = buildSummaryText(status);
+  const failed = status?.last ? !status.last.ok : false;
+  return (
+    <button
+      type="button"
+      className={failed ? "book-summary small error" : "book-summary small"}
+      data-expanded={expanded}
+      aria-expanded={expanded}
+      title={text}
+      onClick={() => setExpanded((x) => !x)}
+    >
+      {text}
+    </button>
+  );
+}
+
+function DiagRow({ d, onGoto }: { d: Diagnostic; onGoto(file: string, line: number, column: number): void }) {
+  const where = d.file ? `${d.file}${d.line ? `:${d.line}` : ""}${d.column ? `:${d.column}` : ""}` : "";
+  const body = (
+    <>
+      <span className={d.severity === "error" ? "diag-sev error" : "diag-sev warn"}>{d.severity === "error" ? "エラー" : "警告"}</span>
+      {where && <span className="diag-where">{where}</span>}
+      <span className="diag-msg">{d.message}</span>
+    </>
+  );
+  if (!d.file || !d.line) return <div className="diag">{body}</div>;
+  return (
+    <button type="button" className="diag diag-link" onClick={() => onGoto(d.file!, d.line!, d.column ?? 1)}>
+      {body}
+    </button>
+  );
+}

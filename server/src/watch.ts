@@ -5,7 +5,9 @@ import type { FastifyBaseLogger } from "fastify";
 import type WebSocket from "ws";
 import { loadProjectConfig, PROJECT_NAME_RE, type HostConfig } from "./config.js";
 import { listArticles, sha256File, TMP_FILE_RE } from "./files.js";
+import type { BuildStatus } from "./build.js";
 import { gitDir, GitError, readGitStatus, type GitInfo } from "./git.js";
+import type { PreviewEvent } from "./preview/manager.js";
 
 // プロジェクトのファイル監視と /api/ws への通知（spec 5.3 / 6.4 / 6.5）
 
@@ -14,7 +16,9 @@ export type StudioEvent =
   | { type: "file-removed"; project: string; path: string }
   | ({ type: "git-changed"; project: string } & GitState)
   | { type: "articles-changed"; project: string }
-  | { type: "config-changed"; project: string; error?: string };
+  | { type: "config-changed"; project: string; error?: string }
+  | ({ type: "build-status" } & BuildStatus)
+  | PreviewEvent;
 
 // GitInfo の各項目。読めなければ null と gitError
 export type GitState = { [K in keyof GitInfo]: GitInfo[K] | null } & { gitError?: string };
@@ -257,8 +261,10 @@ export class Watchers {
     ws.on("close", () => this.dropClient(ws));
     ws.on("error", () => this.dropClient(ws));
     ws.on("pong", () => (st.alive = true));
-    // クライアントからの送信は今は使わない
-    ws.on("message", () => undefined);
+    // クライアントからは "ping" だけ受ける（ブラウザは ping フレームを送れないので、半開きの検出に使う）
+    ws.on("message", (m: unknown) => {
+      if (String(m) === "ping" && ws.readyState === ws.OPEN) ws.send('{"type":"pong"}');
+    });
     if (!this.pinger) {
       this.pinger = setInterval(() => this.pingAll(), this.opts.pingIntervalMs);
       this.pinger.unref();
@@ -285,7 +291,15 @@ export class Watchers {
     }
   }
 
+  // studio の中で通知を受け取る（stale のキャッシュを捨てるなど）
+  private listeners: ((ev: StudioEvent) => void)[] = [];
+
+  onEvent(cb: (ev: StudioEvent) => void): void {
+    this.listeners.push(cb);
+  }
+
   broadcast(ev: StudioEvent): void {
+    for (const cb of this.listeners) cb(ev);
     const msg = JSON.stringify(ev);
     for (const ws of [...this.clients.keys()]) {
       if (ws.readyState !== ws.OPEN) continue;

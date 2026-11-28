@@ -1,0 +1,128 @@
+// API の型（サーバーの取り決めに合わせて画面側で定義する）
+
+export interface ProjectSummary {
+  name: string;
+  branch: string | null;
+  detached: boolean | null;
+  head: string | null;
+  uncommitted: number | null;
+  unpushed: number | null;
+  upstream: string | null;
+  gitError?: string;
+  error?: string;
+}
+
+export interface FileContent {
+  path: string;
+  content: string;
+  rev: string;
+}
+
+export type PreviewState = "stopped" | "starting" | "running" | "stopping";
+
+export interface PreviewStatus {
+  state: PreviewState;
+  project: string | null;
+  article: string | null;
+  startedAt: string | null;
+  viewers: number;
+  lastError: string | null;
+  // 最後に届いたコンパイル結果（tinymist の compileStatus。エラーの内容は届かない）
+  compile?: { ok: boolean; at: string } | null;
+}
+
+// 0 始まり。character は UTF-16 の位置（CodeMirror と同じ）
+export interface Position {
+  line: number;
+  character: number;
+}
+
+export interface ImageCall {
+  path: string;
+  // 呼び出し全体の文字オフセット [start, end)
+  start: number;
+  end: number;
+  // 1 始まり。start / end / column は UTF-16 の位置
+  line: number;
+  column: number;
+  src: string | null;
+  resolved: string | null;
+  editable: boolean;
+  width: string | null;
+  height: string | null;
+  alt: string | null;
+  nearest?: boolean;
+}
+
+export interface ImageList {
+  rev: string;
+  calls: ImageCall[];
+}
+
+export interface ImageSet {
+  width?: string | null;
+  height?: string | null;
+  alt?: string | null;
+}
+
+// column は typst の出力のまま（コードポイント単位。UTF-16 ではない）
+export interface Diagnostic {
+  severity: "error" | "warning";
+  file: string | null;
+  line: number | null;
+  column: number | null;
+  message: string;
+}
+
+export interface BuildResult {
+  buildId: string;
+  profile: string;
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  ok: boolean;
+  reason: "ok" | "error" | "limit" | "timeout" | "stopped" | "nomem";
+  diagnostics: Diagnostic[];
+  warnings: number;
+  pdfUrl?: string;
+  sizeBytes?: number;
+}
+
+export interface BuildStatus {
+  project: string;
+  profile: string;
+  state: "idle" | "running" | "queued";
+  running?: { buildId: string; startedAt: string };
+  last?: BuildResult;
+  lastSuccess?: BuildResult;
+  stale: boolean;
+}
+
+// POST build の応答。started: 始めた、queued: 待ちに入れた（同じものが待っていればそれにまとめた）、
+// dropped: 待ちが埋まっていて受け付けなかった
+export type BuildAccepted = "started" | "queued" | "dropped";
+
+export interface Profiles {
+  profiles: string[];
+  // プロファイルが 1 つも無ければ null
+  default: string | null;
+}
+
+export interface UploadResult {
+  path: string;
+  insert: string;
+}
+
+type GitFields = Omit<ProjectSummary, "name" | "error">;
+
+// /api/ws の通知
+export type StudioEvent =
+  | { type: "file-changed"; project: string; path: string; rev: string }
+  | { type: "file-removed"; project: string; path: string }
+  | ({ type: "git-changed"; project: string } & GitFields)
+  | { type: "articles-changed"; project: string }
+  | { type: "config-changed"; project: string; error?: string }
+  | ({ type: "build-status" } & BuildStatus)
+  | { type: "preview-jump"; project: string; path: string; start: Position; end: Position; image?: ImageCall }
+  | ({ type: "preview-status" } & PreviewStatus)
+  | { type: "preview-compile"; project: string; ok: boolean; message?: string };
