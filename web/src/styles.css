@@ -956,6 +956,30 @@ code {
   flex: none;
 }
 
+/* 本タブの 1 行目: プロファイル（伸びる）+ ビルド。折り返さない */
+.book-bar {
+  flex-wrap: nowrap;
+}
+
+.book-bar .select {
+  flex: 1;
+}
+
+.book-bar .btn {
+  flex: none;
+}
+
+.book-auto {
+  margin-left: auto;
+}
+
+.pdf-download {
+  min-height: var(--tap);
+  padding: 0 var(--sp-3);
+  background: var(--box);
+  font-size: 0.85rem;
+}
+
 .select {
   min-height: var(--tap);
   min-width: 0;

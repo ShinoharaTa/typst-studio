@@ -4,7 +4,7 @@ import { stepZoom } from "../lib/pdfpos";
 
 // pdf.js で本全体の PDF を出す。url が変わったら、位置と拡大率を保ったまま裏で差し替える。
 // active になるまで pdf.js も PDF も読まない。隠れている間は差し替えず、出たときに最新へ差し替える
-export function PdfViewer({ url, active }: { url: string | null; active: boolean }) {
+export function PdfViewer({ url, active, downloadUrl }: { url: string | null; active: boolean; downloadUrl?: string | null }) {
   const scroller = useRef<HTMLDivElement>(null);
   const view = useRef<PdfView | null>(null);
   const [page, setPage] = useState({ page: 0, total: 0 });
@@ -67,6 +67,11 @@ export function PdfViewer({ url, active }: { url: string | null; active: boolean
           {page.total ? `${page.page} / ${page.total}` : "—"}
           {loading && " ・ 読み込み中"}
         </span>
+        {downloadUrl && (
+          <a className="btn pdf-download" href={downloadUrl} download>
+            ダウンロード
+          </a>
+        )}
         <button type="button" className="icon-btn" onClick={() => changeZoom(stepZoom(zoom, -1))} aria-label="縮小">
           −
         </button>

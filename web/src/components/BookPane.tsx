@@ -86,7 +86,8 @@ export function BookPane(props: {
 
   return (
     <div className="book-pane">
-      <div className="pane-bar">
+      {/* 1 行目はプロファイルとビルドだけ（スマホで PDF の場所を空ける）。ダウンロードは下のバー、自動ビルドは状態の行へ */}
+      <div className="pane-bar book-bar">
         <select
           className="select"
           value={profile ?? ""}
@@ -103,12 +104,12 @@ export function BookPane(props: {
         <button type="button" className="btn btn-primary" onClick={() => void build()} disabled={!profile}>
           {status?.state === "running" ? "ビルド中…" : status?.state === "queued" ? "待ち 1 件" : "ビルド"}
         </button>
-        {success?.pdfUrl && (
-          <a className="btn" href={success.pdfUrl} download>
-            ダウンロード
-          </a>
-        )}
-        <label className="check">
+      </div>
+
+      <div className="book-status">
+        <BuildSummary status={status} />
+        {status?.stale && <span className="badge warn">未反映の変更あり</span>}
+        <label className="check book-auto">
           <input
             type="checkbox"
             checked={autoOn}
@@ -116,11 +117,6 @@ export function BookPane(props: {
           />
           自動ビルド
         </label>
-      </div>
-
-      <div className="book-status">
-        <BuildSummary status={status} />
-        {status?.stale && <span className="badge warn">未反映の変更あり</span>}
       </div>
 
       {error && <p className="notice error">{error}</p>}
@@ -154,7 +150,7 @@ export function BookPane(props: {
         </details>
       )}
 
-      <PdfViewer url={success?.pdfUrl ?? null} active={props.active} />
+      <PdfViewer url={success?.pdfUrl ?? null} active={props.active} downloadUrl={success?.pdfUrl ?? null} />
     </div>
   );
 }
