@@ -1,0 +1,33 @@
+[project]
+name = "sample-book"
+typst = "0.14.2"
+
+[fonts]
+paths = ["fonts"]
+system = true
+
+[book]
+entry = "main.typ"
+preview_profile = "print"
+
+[preview]
+entry = "preview.typ"
+inputs = { ARTICLE = "{article_entry}", EBOOK = "true" }
+
+[articles]
+glob = "articles/**/article.typ"
+image_dirs = ["images"]
+upload_dir = "images"
+
+[[articles.override]]
+match = "articles/author-b/**"
+inputs = { CATEGORY = "column" }
+
+[profiles.print]
+entry = "main.typ"
+output = "main.pdf"
+
+[profiles.ebook]
+entry = "main.typ"
+inputs = { EBOOK = "true" }
+output = "ebook-body.pdf"
