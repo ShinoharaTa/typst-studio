@@ -21,7 +21,7 @@
   --pdf-bg: #d9d6cf;
   --shadow-float: 0 8px 28px rgb(0 0 0 / 0.14);
 
-  --hl-comment: #8a867c;
+  --hl-comment: #6f6b62;
   --hl-string: #4f7a2a;
   --hl-keyword: #8a3f8f;
   --hl-function: #2d64a0;
@@ -72,7 +72,7 @@
     --pdf-bg: #0a0b0c;
     --shadow-float: 0 8px 28px rgb(0 0 0 / 0.5);
 
-    --hl-comment: #807e77;
+    --hl-comment: #94918a;
     --hl-string: #a5c983;
     --hl-keyword: #d4a0d8;
     --hl-function: #8fb8e6;
@@ -440,15 +440,19 @@ code {
 }
 
 /* 「続きから」（プロジェクト一覧の最上部）と「前回」 */
+/* 地はほかの行と同じパネル色（背景との差を保つ）。強調は文字の色と矢印で出す */
 .continue-card {
   margin-bottom: var(--sp-3);
-  background: var(--accent-soft);
 }
 
 .continue-label {
   font-size: 0.78rem;
   font-weight: 600;
   color: var(--accent);
+}
+
+.continue-label::before {
+  content: "▶ ";
 }
 
 .last-pill {
