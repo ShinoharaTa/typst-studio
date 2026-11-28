@@ -180,6 +180,17 @@ describe("leaving the editor", () => {
     expect(host.querySelector(".cm-editor")).not.toBeNull();
     expect(docText()).toBe("X= A\n");
     expect(window.location.hash).toBe("#/p/sample-book/edit/a.typ");
+    // 開いた直後のフォーカスはダイアログ本体（どちらのボタンも内容を捨てるので、ボタンには当てない）
+    const dialog = document.querySelector<HTMLElement>("[data-slot=alert-dialog]")!;
+    await until(() => document.activeElement === dialog, "focus on the dialog");
+    expect(document.activeElement?.tagName).not.toBe("BUTTON");
+  });
+
+  it("shrinks the tab labels to caption while the keyboard is shown, only in one-pane", async () => {
+    await openEditor();
+    const tabs = [...host.querySelectorAll<HTMLElement>(".view-tabs .tab")];
+    expect(tabs.length).toBe(4);
+    for (const t of tabs) expect(t.className.split(" ")).toEqual(expect.arrayContaining(["kb:text-caption", "kb:flex-auto"]));
   });
 
   it("stays on the editor when the save fails on the network", async () => {
@@ -204,7 +215,7 @@ describe("leaving the editor", () => {
     await go("#/p/sample-book");
     root = createRoot(host);
     await act(async () => root!.render(<App />));
-    await until(() => !!host.querySelector(".list-row"), "article list");
+    await until(() => !!host.querySelector("[data-slot=list-item]"), "article list");
     await go("#/p/sample-book/edit/a.typ");
     await until(() => !!host.querySelector(".cm-editor") && docText() === "= A\n", "file loaded");
     const len = window.history.length;
@@ -295,6 +306,8 @@ describe("leaving the editor", () => {
     await openEditor();
     expect(host.querySelectorAll(".view-tabs")).toHaveLength(1);
     expect(tabLabels(host.querySelector(".topbar .view-tabs"))).toEqual(["プレビュー", "本", "画像"]);
+    // 2 ペインではキーボード表示中もタブの文字を小さくしない
+    for (const t of host.querySelectorAll(".view-tabs .tab")) expect(t.className).not.toContain("kb:text-caption");
   });
 
   const tabButton = (label: string) => [...host.querySelectorAll<HTMLButtonElement>(".tab")].find((b) => b.textContent === label)!;

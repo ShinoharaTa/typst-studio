@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Toaster } from "sonner";
 import { ArticleList } from "./components/ArticleList";
 import { EditorScreen } from "./components/EditorScreen";
 import { ProjectList } from "./components/ProjectList";
+import { Toaster } from "./components/ui/sonner";
 import { useKeyboardInset } from "./lib/hooks";
 import { getLeaveGuard, leavesFile, parseRoute } from "./lib/route";
 
@@ -72,7 +72,7 @@ export function App() {
       {route.view === "projects" && <ProjectList />}
       {route.view === "articles" && <ArticleList key={route.project} project={route.project} />}
       {route.view === "edit" && <EditorScreen key={`${route.project}\n${route.article}`} route={route} />}
-      <Toaster position="top-center" theme="system" closeButton />
+      <Toaster position="top-center" closeButton />
     </>
   );
 }

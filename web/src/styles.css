@@ -1,30 +1,73 @@
-/* 落ち着いたシンプルな見た目。スマホ優先（spec 4.2）
-   線は使わず、面（背景 L0 → パネル L1 → ボックス L2）と余白で区切る。
-   置かれた面より 1 段上の色を使う（背景の上にはパネル色、パネルの上にはボックス色）。
+/* デザインシステム（shadcn/ui の Base UI 版の作り方 + Tailwind CSS v4）。部品は components/ui/ にある。
+   落ち着いたシンプルな見た目。スマホ優先（spec 4.2）。使い分けの規則の全文は docs/design-system.md（✓ のものは styles.node.test.ts で検査する）。要約:
+   - 文字は役割で 4 段 + 入力: screen（画面の題）> title（シート・ダイアログの題）> body（本文・ボタン・行の題）> caption（補助）、
+     入力欄とエディタだけ input（16px）。見出しの太さは semibold だけ
+   - 角丸は面の段で決まる: panel 16（背景の上の面）/ box 10（面の上の箱）/ float 20（浮く面）/ pill（タブ・バッジ・チップ）
+   - 余白は 4 / 8 / 12 / 16 / 24 / 32（行内だけ 2、当たり判定に合わせる 44）。画面の外周 8、ペインの内側 12、行の内側 12
+   - components/ui の外では地・角丸・影を書かない（bg-* / rounded-* / shadow-*）。部品に className で見た目を上書きしない
+     （置き場所・幅・余白の外側だけ）。任意の値（text-[14px] など）は使わない
+   - アイコンは lucide-react の名前付き import。大きさは置き場が決める（ボタン md 20 / sm 16）
+   線は使わず、面の段（background → card → secondary、浮く面は popover）と余白で区切る。
+   箱（ボタン・入力・一覧の行・通知）の地は、置かれた面が決める（surface-* が --box を配る。呼ぶ側は段を選ばない）。
    残す線: フォーカスと入力エラーの outline、エディタのカーソル。影は浮いているものと PDF のページだけ。
    エディタのフォーカスは outline ではなく、カーソルと現在行の強調で示す（フォーカスが無い間は強調を消す） */
 
+@import "tailwindcss";
+/* テストの中の文字列（検査の例に書いたクラス名）からユーティリティを作らない */
+@source not "./**/*.test.{ts,tsx}";
+/* 画面の骨組み（2 ペイン・入れ替え・キーボード表示中の段・safe-area）。data 属性の組み合わせが多いので CSS で書く */
+@import "./styles/screen.css" layer(components);
+/* CodeMirror の上書き。CodeMirror は自分の CSS を @layer の外に入れるので、こちらも外に置く（中だと負ける） */
+@import "./styles/codemirror.css";
+
+/* キーボード表示中（useKeyboardInset が :root に data-kb を付ける） */
+@custom-variant kb (:root[data-kb] &);
+/* ホバーはマウスなどの細かい指し示しがある端末だけ（タッチで押した後に色が残らないように） */
+@custom-variant hover {
+  @media (hover: hover) and (pointer: fine) {
+    &:hover {
+      @slot;
+    }
+  }
+}
+
 :root {
-  --bg: #ebe8e1;
-  --panel: #ffffff;
-  --box: #f1efea;
-  --box-press: #e3e0d8;
+  /* 面: background（L0）→ card（L1、パネル）→ secondary（L2、ボックス・キー） */
+  --background: #ebe8e1;
+  --foreground: #24231f;
+  --card: #ffffff;
+  --secondary: #f1efea;
+  --secondary-press: #e3e0d8;
+  /* 浮く面（トースト・シート・ダイアログ・チップ・診断の帯）。パネル（card）とも背景とも違う 1 段。
+     その上の箱は popover-box（ライトは白、ダークは 1 段明るい） */
+  --popover: #f6f4ef;
+  --popover-box: #ffffff;
+  --popover-press: #e6e3dc;
+  --muted-foreground: #625f57;
   /* 表示の切り替えのタブ。タブをまとめるトラック（背景より 1 段沈む）と、その上の選択中のピル */
   --tab-track: #dedbd3;
   --tab-on: #ffffff;
   --tab-press: #ebe9e4;
-  --text: #24231f;
-  --muted: #625f57;
-  --accent: #2f6384;
-  --accent-text: #ffffff;
-  --accent-soft: #dfeaf1;
-  --warn: #855600;
-  --warn-bg: #f8ecd2;
-  --error: #a8301a;
-  --error-bg: #fae3dc;
-  --ok: #2a6e43;
-  --pdf-bg: #d9d6cf;
-  --shadow-float: 0 8px 28px rgb(0 0 0 / 0.14);
+  --primary: #2f6384;
+  --primary-foreground: #ffffff;
+  /* 薄い地 + primary の文字（選択中の切り替え・未保存・「前回」） */
+  --accent: #dfeaf1;
+  --warning: #855600;
+  --warning-soft: #f8ecd2;
+  --destructive: #a8301a;
+  --destructive-soft: #fae3dc;
+  --destructive-press: #f4cfc4;
+  /* 成功のトーストのアイコン */
+  --success: #2a6e43;
+  /* PDF・プレビューの台と、その上の紙 */
+  --pdf: #d9d6cf;
+  --paper: #ffffff;
+  --elev-float: 0 8px 28px rgb(0 0 0 / 0.14);
+  /* 下から出るシートは上の縁に影を落とす */
+  --elev-sheet: 0 -6px 28px rgb(0 0 0 / 0.12);
+  --elev-dialog: 0 16px 48px rgb(0 0 0 / 0.24);
+  --elev-page: 0 1px 4px rgb(0 0 0 / 0.18);
+  --scrim: rgb(0 0 0 / 0.35);
 
   --hl-comment: #6f6b62;
   --hl-string: #4f7a2a;
@@ -37,23 +80,12 @@
   --hl-link: #2f7a7a;
   --hl-bracket: #7a766d;
 
-  --sp-1: 4px;
-  --sp-2: 8px;
-  --sp-3: 12px;
-  --sp-4: 16px;
-  --sp-5: 24px;
-  --sp-6: 32px;
-  --r-panel: 16px;
-  --r-box: 10px;
-  --r-thumb: 6px;
-  /* 記号キー。キーボードのキーに寄せ、タブ（ピル）・ボタン（10px）と形で見分ける */
-  --r-key: 6px;
-  --r-sheet: 20px;
-  --r-pill: 999px;
-  --tap: 44px;
+  /* 背景の上に置く箱の地（surface-background と同じ） */
+  --box: var(--card);
+  --box-press: var(--secondary-press);
+  --box-2: var(--secondary);
+  --box-2-press: var(--secondary-press);
 
-  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   /* ソフトキーボードで隠れる高さ（useKeyboardInset が入れる） */
   --kb: 0px;
 
@@ -62,25 +94,30 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0e0f11;
-    --panel: #1c1d20;
-    --box: #292a2f;
-    --box-press: #35373d;
+    --background: #0e0f11;
+    --foreground: #e6e4df;
+    --card: #1c1d20;
+    --secondary: #292a2f;
+    --secondary-press: #35373d;
+    --popover: #2a2b30;
+    --popover-box: #34363c;
+    --popover-press: #41434a;
+    --muted-foreground: #a3a199;
     --tab-track: #1c1d20;
     --tab-on: #3a3c43;
     --tab-press: #2a2c31;
-    --text: #e6e4df;
-    --muted: #a3a199;
-    --accent: #86b6d6;
-    --accent-text: #10151a;
-    --accent-soft: #22343f;
-    --warn: #e0b45c;
-    --warn-bg: #3a2f17;
-    --error: #f08a72;
-    --error-bg: #3d211b;
-    --ok: #7cc79a;
-    --pdf-bg: #0a0b0c;
-    --shadow-float: 0 8px 28px rgb(0 0 0 / 0.5);
+    --primary: #86b6d6;
+    --primary-foreground: #10151a;
+    --accent: #22343f;
+    --warning: #e0b45c;
+    --warning-soft: #3a2f17;
+    --destructive: #f08a72;
+    --destructive-soft: #3d211b;
+    --destructive-press: #4f2a22;
+    --success: #7cc79a;
+    --pdf: #0a0b0c;
+    --elev-float: 0 8px 28px rgb(0 0 0 / 0.5);
+    --elev-sheet: 0 -6px 28px rgb(0 0 0 / 0.5);
 
     --hl-comment: #94918a;
     --hl-string: #a5c983;
@@ -95,1686 +132,157 @@
   }
 }
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
+/* Tailwind の既定の色・影・角丸・文字の大きさは消し、ここで決めたものだけを使えるようにする */
+@theme {
+  --color-*: initial;
+  --shadow-*: initial;
+  --radius-*: initial;
+  --text-*: initial;
+  --ease-*: initial;
+  --breakpoint-*: initial;
+
+  /* ルートの文字は 15px なので、間隔は rem にせず 4px 刻みにする（p-1 = 4px、p-11 = 44px） */
+  --spacing: 4px;
+
+  --font-sans: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* 文字は役割で 4 段 + 入力。見出しの太さは semibold（600）だけ */
+  /* 補助: 説明・バッジ・ラベル・グループの見出し・状態・行番号 */
+  --text-caption: 13px;
+  --text-caption--line-height: 1.45;
+  /* 本文: 段落・ボタン・タブ・行の題（semibold）・キー */
+  --text-body: 15px;
+  --text-body--line-height: 1.5;
+  /* 重なる面（シート・ダイアログ）の題 */
+  --text-title: 17px;
+  --text-title--line-height: 1.35;
+  /* 画面の題 */
+  --text-screen: 20px;
+  --text-screen--line-height: 1.3;
+  /* 入力欄とエディタだけ。16px 未満だと iOS がフォーカス時に拡大する */
+  --text-input: 16px;
+  --text-input--line-height: 1.5;
+
+  /* 角丸は面の段に結びつける: 面（背景の上のパネル）16 / 箱（面の上のボタン・入力・行・通知）10 / 浮く面 20 / ピル */
+  --radius-box: 10px;
+  --radius-panel: 16px;
+  --radius-float: 20px;
+  --radius-pill: 999px;
+
+  /* 一覧の画面の本文の最大幅 */
+  --container-list: 640px;
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-html {
-  -webkit-tap-highlight-color: transparent;
-  -webkit-text-size-adjust: 100%;
-  /* アプリの画面なので引っ張って更新させない */
-  overscroll-behavior: none;
+/* ユーティリティにする色。面の色（background / card / secondary / popover）はユーティリティにせず、surface-* で配る */
+@theme inline {
+  --color-foreground: var(--foreground);
+  /* 置かれた面が配る箱の地（surface-* を参照） */
+  --color-box: var(--box);
+  --color-box-press: var(--box-press);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-tab-track: var(--tab-track);
+  --color-tab-on: var(--tab-on);
+  --color-tab-press: var(--tab-press);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-destructive: var(--destructive);
+  --color-destructive-soft: var(--destructive-soft);
+  --color-destructive-press: var(--destructive-press);
+  --color-success: var(--success);
+  --color-pdf: var(--pdf);
+  --color-scrim: var(--scrim);
+  --color-paper: var(--paper);
+  --shadow-float: var(--elev-float);
+  --shadow-sheet: var(--elev-sheet);
+  --shadow-dialog: var(--elev-dialog);
 }
 
-html,
-body {
-  margin: 0;
-  height: 100%;
-  background: var(--bg);
-  color: var(--text);
-  font-family:
-    system-ui,
-    -apple-system,
-    "Hiragino Sans",
-    "Noto Sans JP",
-    sans-serif;
-  font-size: 15px;
-  line-height: 1.5;
+/* 面。地の色と、その上に置く箱の地（--box）・押したとき（--box-press）・箱の中の箱（--box-2）を配る。
+   箱の部品は bg-box を使うので、置き場を変えても段が崩れない。:root（背景）も surface-background と同じ値 */
+@utility surface-background {
+  background-color: var(--background);
+  --box: var(--card);
+  --box-press: var(--secondary-press);
+  --box-2: var(--secondary);
+  --box-2-press: var(--secondary-press);
 }
 
-body {
-  overflow: hidden;
+@utility surface-card {
+  background-color: var(--card);
+  --box: var(--secondary);
+  --box-press: var(--secondary-press);
+  --box-2: var(--card);
+  --box-2-press: var(--secondary-press);
 }
 
-#root {
-  height: 100%;
+@utility surface-popover {
+  background-color: var(--popover);
+  --box: var(--popover-box);
+  --box-press: var(--popover-press);
+  --box-2: var(--popover);
+  --box-2-press: var(--popover-press);
 }
 
-button,
-input,
-select,
-textarea {
-  font: inherit;
-  color: inherit;
+/* 箱の中（一覧の行の中身・通知の中身）。箱の上に置くものは、箱の中の箱の地にする。
+   2 段まで（面 → 箱 → 箱の中の箱）。--box-2 の先は無いので、box-inside の中でさらに box-inside にしても段は変わらない */
+@utility box-inside {
+  --box: var(--box-2);
+  --box-press: var(--box-2-press);
 }
 
-/* 16px 未満だと iOS がフォーカス時に拡大する */
-input,
-select,
-textarea {
-  font-size: 16px;
-}
-
-button,
-a,
-[role="button"] {
-  touch-action: manipulation;
-}
-
-button,
-.btn,
-.tab,
-.chip {
-  -webkit-user-select: none;
-  user-select: none;
-}
-
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-code {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 0.9em;
-}
-
-.muted {
-  color: var(--muted);
-}
-.small {
-  font-size: 0.85rem;
-}
-.error {
-  color: var(--error);
-}
-.pad {
-  padding: var(--sp-4);
-}
-
-/* ---- 画面の骨組み ---- */
-
-.screen {
-  display: flex;
-  flex-direction: column;
-  height: calc(100dvh - var(--kb));
-  padding-left: env(safe-area-inset-left);
-  padding-right: env(safe-area-inset-right);
-  overflow: hidden;
-  background: var(--bg);
-}
-
-.topbar {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-1);
-  min-height: 52px;
-  padding: env(safe-area-inset-top) var(--sp-2) 0;
-  background: var(--bg);
-  flex: none;
-}
-
-.topbar-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  flex: 1;
-  padding: var(--sp-1);
-}
-
-.topbar-title {
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.topbar > .topbar-title {
-  padding: 0 var(--sp-2);
-  font-size: 1.25rem;
-  font-weight: 700;
-}
-
-.topbar-group {
-  color: var(--muted);
-  font-weight: 400;
-}
-
-.topbar-sub {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--sp-1) var(--sp-2);
-  font-size: 0.78rem;
-  min-width: 0;
-}
-
-/* ---- ボタン ---- */
-
-.btn,
-.icon-btn,
-.btn-text,
-.tab,
-.swap-btn,
-.tb-btn,
-.chip,
-.link-btn,
-.seg-btn,
-.list-row,
-.img-row-main,
-.diag-link {
-  cursor: pointer;
-  transition:
-    transform 140ms var(--ease-out),
-    background-color 140ms ease;
-}
-
-.btn:active,
-.icon-btn:active,
-.tb-btn:active:not(:disabled):not([aria-disabled="true"]),
-.chip:active,
-.seg-btn:active {
-  transform: scale(0.97);
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: var(--tap);
-  padding: 0 14px;
-  border: 0;
-  border-radius: var(--r-box);
-  background: var(--box);
-  color: var(--text);
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.btn:active:not(:disabled) {
-  background: var(--box-press);
-}
-
-/* 背景の上・通知の中のボタンは 1 段上の色にする（同じ色だと消える） */
-.topbar .btn,
-.notice .btn {
-  background: var(--panel);
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-  transform: none;
-}
-
-.btn.btn-primary {
-  background: var(--accent);
-  color: var(--accent-text);
-}
-
-.btn.btn-danger {
-  background: var(--error-bg);
-  color: var(--error);
-}
-
-.icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: var(--tap);
-  height: var(--tap);
-  border: 0;
-  border-radius: var(--r-box);
-  background: transparent;
-  color: var(--text);
-  font-size: 1.5rem;
-  line-height: 1;
-  text-decoration: none;
-}
-
-.icon-btn:active {
-  background: var(--box-press);
-}
-
-.btn-text {
-  min-height: var(--tap);
-  min-width: var(--tap);
-  border: 0;
-  border-radius: var(--r-box);
-  background: transparent;
-  padding: 0 6px;
-}
-
-.link-btn {
-  display: inline-flex;
-  align-items: center;
-  min-height: var(--tap);
-  padding: 0 var(--sp-1);
-  border: 0;
-  background: transparent;
-  color: var(--accent);
-  text-align: left;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .btn:hover:not(:disabled),
-  .icon-btn:hover,
-  .swap-btn:hover,
-  .tb-btn:hover:not(:disabled):not([aria-disabled="true"]),
-  .list-row:hover,
-  .img-row-main:hover,
-  .diag-link:hover,
-  .seg-btn:hover {
-    background-color: var(--box-press);
+@layer base {
+  html {
+    /* アプリの画面なので引っ張って更新させない */
+    overscroll-behavior: none;
   }
-  .tab:hover:not([aria-pressed="true"]) {
-    background-color: var(--tab-press);
+
+  html,
+  body {
+    height: 100%;
+    background: var(--background);
+    color: var(--foreground);
+    font-size: var(--text-body);
+    line-height: 1.5;
   }
-  .btn.btn-primary:hover:not(:disabled) {
-    background-color: var(--accent);
-    filter: brightness(1.08);
+
+  body {
+    overflow: hidden;
   }
-  .btn.btn-danger:hover:not(:disabled) {
-    background-color: var(--error-bg);
-    filter: brightness(0.97);
+
+  #root {
+    height: 100%;
   }
-}
 
-.pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 1px var(--sp-2);
-  border-radius: var(--r-pill);
-  font-size: 0.78rem;
-  white-space: nowrap;
-}
-
-/* ---- 一覧（プロジェクト・記事） ---- */
-
-.list-main {
-  flex: 1;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: var(--sp-1) var(--sp-3) calc(var(--sp-6) + env(safe-area-inset-bottom));
-}
-
-.list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.list-heading {
-  margin: var(--sp-5) var(--sp-4) var(--sp-2);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--muted);
-  overflow-wrap: anywhere;
-}
-
-.list-section:first-child .list-heading {
-  margin-top: var(--sp-2);
-}
-
-.list-section + .list-section {
-  margin-top: 6px;
-}
-
-.list-row {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 2px;
-  min-height: 52px;
-  padding: var(--sp-3) var(--sp-4);
-  border-radius: 12px;
-  background: var(--panel);
-  color: var(--text);
-  text-decoration: none;
-  overflow-wrap: anywhere;
-}
-
-.list-row:active {
-  background: var(--box-press);
-}
-
-/* プロジェクト一覧は 1 プロジェクト = 1 枚の大きめのパネル */
-.project-list .list {
-  gap: var(--sp-2);
-}
-
-.project-list .list-row {
-  min-height: 64px;
-  padding: 14px var(--sp-4);
-  border-radius: var(--r-panel);
-  gap: 6px;
-}
-
-.list-row-title {
-  font-size: 16px;
-  font-weight: 600;
-}
-
-/* 「続きから」（プロジェクト一覧の最上部）と「前回」 */
-/* 地はほかの行と同じパネル色（背景との差を保つ）。強調は文字の色と矢印で出す */
-.continue-card {
-  margin-bottom: var(--sp-3);
-}
-
-.continue-label {
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--accent);
-}
-
-.continue-label::before {
-  content: "▶ " / "";
-}
-
-.last-pill {
-  margin-left: var(--sp-2);
-  vertical-align: 2px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.list-row-sub {
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
-.list-row-error {
-  padding: 6px 10px;
-  border-radius: var(--r-box);
-  background: var(--error-bg);
-  color: var(--error);
-  font-size: 0.85rem;
-}
-
-/* Git のピル（ブランチ・未コミット・未 push） */
-.git {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--sp-1);
-  font-size: 0.78rem;
-  color: var(--muted);
-  min-width: 0;
-}
-
-.git-branch,
-.git-count {
-  display: inline-flex;
-  align-items: center;
-  padding: 1px var(--sp-2);
-  border-radius: var(--r-pill);
-}
-
-.git-branch {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  background: var(--box);
-  color: var(--text);
-  overflow-wrap: anywhere;
-}
-
-/* ヘッダ（背景の上）ではパネル色 */
-.topbar .git-branch {
-  background: var(--panel);
-}
-
-.git-count.warn {
-  background: var(--warn-bg);
-  color: var(--warn);
-}
-
-.git-error {
-  color: var(--error);
-}
-
-.notice {
-  margin: var(--sp-2) var(--sp-3);
-  padding: 10px var(--sp-3);
-  border-radius: var(--r-box);
-  background: var(--box);
-  overflow-wrap: anywhere;
-}
-
-.notice p {
-  margin: 0 0 var(--sp-2);
-}
-
-.notice p:last-child {
-  margin-bottom: 0;
-}
-
-.notice.error {
-  background: var(--error-bg);
-  color: var(--error);
-}
-
-.badge {
-  display: inline-block;
-  padding: 1px var(--sp-2);
-  border-radius: var(--r-pill);
-  font-size: 0.8rem;
-}
-
-.badge.warn {
-  background: var(--warn-bg);
-  color: var(--warn);
-}
-
-/* ---- 編集画面 ---- */
-
-.save-state {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  white-space: nowrap;
-  padding: 1px var(--sp-2);
-  border-radius: var(--r-pill);
-  font-size: 12px;
-  color: var(--muted);
-}
-.save-dirty,
-.save-saving {
-  background: var(--warn-bg);
-  color: var(--warn);
-}
-.save-conflict,
-.save-error {
-  background: var(--error-bg);
-  color: var(--error);
-  font-weight: 600;
-}
-
-.article-pill {
-  position: relative;
-  border: 0;
-  background: var(--panel);
-  color: var(--accent);
-  font: inherit;
-  font-size: 0.78rem;
-  cursor: pointer;
-}
-
-/* 見た目は小さいピルのまま、押せる範囲を 44px 近くまで広げる */
-.article-pill::after {
-  content: "";
-  position: absolute;
-  inset: -12px -4px;
-}
-
-.article-pill:active {
-  background: var(--box-press);
-}
-
-.panes {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-}
-
-/* 1 ペイン: 全部のペインを重ねて置き、見えないものは visibility で隠す（アンマウントしない。
-   iframe の接続や PDF のスクロール位置をそのまま保つ） */
-.pane {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  background: var(--panel);
-}
-
-.pane[data-active="false"] {
-  visibility: hidden;
-  pointer-events: none;
-}
-
-/* 編集のペインは、本文（エディタ）と入力補助（ツールバー）を同じパネルの面に載せる。
-   ツールバーを背景色にすると、エディタから切り離された別の部品に見える */
-.pane-edit {
-  background: var(--panel);
-}
-
-.editor-screen[data-wide="false"] .side,
-.editor-screen[data-wide="false"] .side-body {
-  display: contents;
-}
-
-/* 2 ペイン（900px 以上）。行の高さを .panes の高さに固定する。
-   auto のままだと行が中身（文書全体）の高さまで伸び、エディタがスクロールできなくなる。
-   ペインどうしは 8px 空ける（フォルダブルではこの隙間がヒンジに重なる） */
-.editor-screen[data-wide="true"] .panes {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr);
-  gap: var(--sp-2);
-  padding: 0 var(--sp-2) var(--sp-2);
-}
-
-.editor-screen[data-wide="true"] .pane-edit {
-  position: relative;
-  min-height: 0;
-  /* 角丸はツールバーごと包む（ツールバーをパネルの外に出さない。左右のパネルの上下端が揃う） */
-  border-radius: var(--r-panel);
-  overflow: hidden;
-}
-
-/* 左右の入れ替え。DOM の順は変えない（プレビューの iframe を読み込み直さない） */
-.editor-screen[data-wide="true"][data-swap="true"] .pane-edit {
-  order: 2;
-}
-
-/* 2 ペインのヘッダは panes と同じ 2 列（同じ左右の余白と隙間）。題は編集側の列、タブは右ペイン側の列。
-   入れ替えると、どちらもペインと一緒に入れ替わる */
-.editor-screen[data-wide="true"] .topbar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 0 minmax(0, 1fr);
-  column-gap: var(--sp-1);
-}
-
-.editor-screen[data-wide="true"] .topbar-main {
-  order: 1;
-}
-
-.editor-screen[data-wide="true"] .swap-btn {
-  order: 2;
-}
-
-.editor-screen[data-wide="true"] .topbar .view-tabs {
-  order: 3;
-}
-
-.editor-screen[data-wide="true"][data-swap="true"] .topbar-main {
-  order: 3;
-}
-
-.editor-screen[data-wide="true"][data-swap="true"] .topbar .view-tabs {
-  order: 1;
-}
-
-.topbar-main {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-1);
-  min-width: 0;
-  flex: 1;
-}
-
-/* 入れ替え: ペインの境目の真上（幅 0 の列の中央）。入れ替えても位置が変わらない。
-   地なしの文字ボタンにして、タブのトラックの外に離して置く（4 つ目のタブに見せない） */
-.swap-btn {
-  justify-self: center;
-  /* 列の外へはみ出す分も、隣の列より上で押せるようにする */
-  z-index: 1;
-  width: var(--swap-w);
-  min-height: var(--tap);
-  padding: 0;
-  border: 0;
-  border-radius: var(--r-box);
-  background: transparent;
-  color: var(--muted);
-  font-size: 0.85rem;
-  white-space: nowrap;
-}
-
-.swap-btn:active {
-  background: var(--box-press);
-  transform: scale(0.97);
-}
-
-.editor-screen {
-  --swap-w: 104px;
-}
-
-/* 入れ替えボタンの分と、その両側 12px（列の隙間 4px + 8px）を境目の側に空ける。
-   padding ではなく margin で空ける（padding だと隣の列の箱がボタンの上に重なり、押せない所ができる） */
-.editor-screen[data-wide="true"] {
-  --swap-room: calc(var(--swap-w) / 2 + var(--sp-2));
-}
-
-.editor-screen[data-wide="true"] .topbar-main {
-  margin-right: var(--swap-room);
-}
-
-.editor-screen[data-wide="true"] .topbar .view-tabs {
-  margin-left: var(--swap-room);
-}
-
-.editor-screen[data-wide="true"][data-swap="true"] .topbar-main {
-  margin-right: 0;
-  margin-left: var(--swap-room);
-}
-
-.editor-screen[data-wide="true"][data-swap="true"] .topbar .view-tabs {
-  margin-left: 0;
-  margin-right: var(--swap-room);
-}
-
-.side {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-}
-
-.side-body {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  border-radius: var(--r-panel);
-  overflow: hidden;
-  background: var(--panel);
-}
-
-/* 表示の切り替え。幅・キーボードの有無によらず上端（切り替える面の真上）に置く。キーボード表示中も隠さない。
-   タブはトラック（背景より 1 段沈んだピル）にまとめ、選択中はその上の明るいピル。
-   トラックで囲むので、外にある入れ替えボタンや記号キー（角丸 6px・ボックス色・パネルの中）とは別の部品に見える */
-.view-tabs {
-  display: flex;
-  flex: none;
-  min-width: 0;
-  padding: 3px;
-  border-radius: var(--r-pill);
-  background: var(--tab-track);
-}
-
-/* 1 ペインはヘッダの 2 段目（題の下、全幅） */
-.editor-screen[data-wide="false"] .topbar {
-  flex-wrap: wrap;
-}
-
-.editor-screen[data-wide="false"] .topbar-main {
-  flex: 1 1 100%;
-  min-height: 52px;
-}
-
-.editor-screen[data-wide="false"] .topbar .view-tabs {
-  flex: 1 1 100%;
-  margin-bottom: var(--sp-2);
-}
-
-/* 見た目は 38px（トラックで 44px）。押せる範囲はトラックの縁まで広げて 44px にする */
-.tab {
-  position: relative;
-  flex: 1;
-  min-width: 0;
-  min-height: 38px;
-  padding: 0 2px;
-  border: 0;
-  border-radius: var(--r-pill);
-  background: transparent;
-  color: var(--muted);
-  /* 文字を大きくしても隣のタブに重ならないよう、上限を付けて末尾を省略する */
-  font-size: min(0.9rem, 15px);
-  white-space: nowrap;
-}
-
-/* 省略は中の文字で行う（.tab に overflow を付けると、押せる範囲を広げる ::after が切られる） */
-.tab-label {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.tab::after {
-  content: "";
-  position: absolute;
-  inset: -3px 0;
-}
-
-.tab:active:not([aria-pressed="true"]) {
-  background: var(--tab-press);
-}
-
-.tab[aria-pressed="true"] {
-  background: var(--tab-on);
-  color: var(--accent);
-  font-weight: 600;
-}
-
-/* キーボード表示中（1 ペイン）は、題を隠して「‹」とタブを 1 段にする（固定の段を減らし、エディタの行数を残す）。
-   保存の状態はツールバーの「保存」が示す。衝突はダイアログ、失敗はトーストと「保存」の色で分かる */
-:root[data-kb] .editor-screen[data-wide="false"] .topbar {
-  flex-wrap: nowrap;
-  min-height: 0;
-  padding-top: calc(env(safe-area-inset-top) + var(--sp-1));
-  padding-bottom: var(--sp-1);
-}
-
-:root[data-kb] .editor-screen[data-wide="false"] .topbar-main {
-  flex: none;
-  min-height: 0;
-}
-
-:root[data-kb] .editor-screen[data-wide="false"] .topbar-text {
-  display: none;
-}
-
-:root[data-kb] .editor-screen[data-wide="false"] .topbar .view-tabs {
-  flex: 1 1 0;
-  margin-bottom: 0;
-}
-
-:root[data-kb] .editor-screen[data-wide="false"] .tab {
-  font-size: min(0.85rem, 14px);
-}
-
-.editor-wrap {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  background: var(--panel);
-}
-
-/* 本文の下端をパネル色へ薄くフェードさせる（線を使わずに、途中で切れた行と記号キーの境目を作る）。
-   高さは EditorScreen の EDGE_FADE と合わせる。診断の帯（z-index: 3）より下 */
-.editor-wrap::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 2;
-  height: 12px;
-  background: linear-gradient(to bottom, transparent, var(--panel));
-  pointer-events: none;
-}
-
-.editor-wrap[data-loading="true"] {
-  opacity: 0.5;
-}
-
-.code-editor {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-}
-
-.code-editor .cm-editor {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  height: 100%;
-  background: var(--panel);
-  font-size: 16px;
-}
-
-/* CodeMirror の既定のフォーカスの点線を消す（線を使わない。フォーカスはカーソルと現在行の強調で分かる） */
-.code-editor .cm-editor.cm-focused {
-  outline: none;
-}
-
-.code-editor .cm-scroller {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK JP", monospace;
-  line-height: 1.6;
-  overscroll-behavior: contain;
-}
-
-/* 行番号の右の線（CodeMirror の既定）は消し、本文との間を空ける */
-.code-editor .cm-gutters {
-  border: 0;
-  background: var(--panel);
-  color: var(--muted);
-  font-size: 12px;
-  padding-right: var(--sp-2);
-}
-
-.code-editor .cm-activeLine,
-.code-editor .cm-activeLineGutter {
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-}
-
-/* フォーカスが無い間は現在行の強調を消す（カーソルも消えるので、強調があれば入力できる状態と分かる）。
-   診断のある行は除く（この規則は詳細度が高く、狭い画面の診断の地の色まで消してしまう） */
-.code-editor .cm-editor:not(.cm-focused) .cm-activeLine:not(.cm-diag-line),
-.code-editor .cm-editor:not(.cm-focused) .cm-activeLineGutter {
-  background: transparent;
-}
-
-.code-editor .cm-content {
-  caret-color: var(--text);
-}
-
-/* 最終行が下端のフェード（.editor-wrap::after の 12px）に掛からないよう、その分だけ下を空ける。
-   CodeMirror の既定（.ͼ1 .cm-content）より詳細度を上げる */
-.code-editor .cm-editor .cm-content {
-  padding-bottom: 12px;
-}
-
-.code-editor .cm-cursor {
-  border-left-color: var(--text);
-}
-
-.code-editor .cm-selectionBackground,
-.code-editor .cm-focused .cm-selectionBackground {
-  background: color-mix(in srgb, var(--accent) 28%, transparent) !important;
-}
-
-.code-editor .cm-lint-marker {
-  width: 0.9em;
-  height: 0.9em;
-}
-
-/* 幅の狭い画面では lint の列を外すので、診断のある行は行の地の色で示す */
-/* 選択範囲（その下に描かれる）が見えるように半透明にする */
-.code-editor[data-compact="true"] .cm-diag-error {
-  background: color-mix(in srgb, var(--error) 14%, transparent);
-}
-
-.code-editor[data-compact="true"] .cm-diag-warning {
-  background: color-mix(in srgb, var(--warn) 16%, transparent);
-}
-
-/* 画像シートを開いている間は読み取り専用 */
-.code-editor[data-readonly="true"] .cm-editor {
-  opacity: 0.65;
-}
-
-/* 入力補助。エディタと同じパネルの面に載せ、キーは 1 段上のボックス色（背景色の溝で切り離さない） */
-.edit-toolbar {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-1);
-  flex: none;
-  /* 上はフェードした本文との間を空ける */
-  padding: var(--sp-2) var(--sp-2) var(--sp-1);
-  background: var(--panel);
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-/* 1 ペインではツールバーが画面の最下段になる（キーボード表示中は下にキーボードが来るので空けない） */
-.editor-screen[data-wide="false"] .edit-toolbar {
-  padding-bottom: calc(var(--sp-1) + env(safe-area-inset-bottom));
-}
-
-:root[data-kb] .editor-screen .edit-toolbar {
-  padding-bottom: var(--sp-1);
-}
-
-.tb-btn {
-  flex: none;
-  min-width: var(--tap);
-  height: var(--tap);
-  border: 0;
-  border-radius: var(--r-key);
-  background: var(--box);
-  color: var(--text);
-  font-size: 1.05rem;
-}
-
-.tb-btn:active:not(:disabled):not([aria-disabled="true"]) {
-  background: var(--box-press);
-}
-
-.tb-btn:disabled {
-  opacity: 0.5;
-}
-
-/* 記号キーは残りの幅を分け合う（320px でも右端の " まで収める。広い画面では幅いっぱいに伸ばし、右を空けない）。
-   保存と元に戻すは幅を保つ */
-.tb-char {
-  flex: 1 1 0;
-  min-width: 28px;
-  padding: 0;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-}
-
-/* 保存の状態を文言と色で示す。文言が変わってもキーの並びがずれないよう幅を固定する。
-   文字の拡大で折れて切れないよう px で指定し、折り返さない（エディタの本文・行番号と同じ扱い）。
-   太さは全状態で同じにする（文言が変わるたびに字の形が揺れないように） */
-.tb-save {
-  width: 56px;
-  padding: 0;
-  font-size: 14px;
-  font-weight: 600;
-  white-space: nowrap;
-  background: transparent;
-  color: var(--muted);
-}
-
-.tb-save[aria-disabled="true"] {
-  cursor: default;
-}
-
-/* 未保存。自動保存（2 秒）で消えるので、塗りのアクセントで呼びかけず、記号キーと同じ強さの面にする */
-.tb-save[data-state="dirty"] {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.tb-save[data-state="conflict"],
-.tb-save[data-state="error"] {
-  background: var(--error-bg);
-  color: var(--error);
-}
-
-/* 画像シートを開いている間（エディタが読み取り専用）は、保存もほかのキーと同じく薄くする */
-.edit-toolbar[data-locked="true"] .tb-save {
-  opacity: 0.5;
-}
-
-/* カーソルのある行の診断。エディタの下端に重ねる（出入りでエディタの高さが変わらないように）。
-   最大 2 行、タップで全文 */
-.line-diag {
-  position: absolute;
-  left: var(--sp-2);
-  right: var(--sp-2);
-  bottom: var(--sp-2);
-  z-index: 3;
-  display: block;
-  box-shadow: var(--shadow-float);
-  padding: 6px var(--sp-3);
-  min-height: var(--tap);
-  border: 0;
-  border-radius: var(--r-box);
-  background: var(--error-bg);
-  color: var(--error);
-  font-size: 0.85rem;
-  text-align: left;
-  overflow-wrap: anywhere;
-  cursor: pointer;
-}
-
-.line-diag.warning {
-  background: var(--warn-bg);
-  color: var(--warn);
-}
-
-/* 2 行で切る（内側の要素で切る。外側で切ると余白に 3 行目がのぞく） */
-.line-diag-text {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
-}
-
-.line-diag[data-expanded="true"] {
-  max-height: 40dvh;
-  overflow-y: auto;
-}
-
-.line-diag[data-expanded="true"] .line-diag-text {
-  -webkit-line-clamp: unset;
-  line-clamp: none;
-  overflow: visible;
-}
-
-/* 「元に戻す」と記号キーの間は、線ではなく余白で分ける */
-.tb-gap {
-  flex: none;
-  width: var(--sp-1);
-}
-
-/* 「ソースへ」チップ */
-.chip-wrap {
-  position: absolute;
-  left: 50%;
-  bottom: var(--sp-3);
-  z-index: 5;
-  display: flex;
-  gap: var(--sp-1);
-  max-width: calc(100% - 24px);
-  transform: translateX(-50%);
-  animation: chip-in 200ms var(--ease-out);
-}
-
-/* 1 ペインでは画面の最下段に来る（キーボード表示中は下にキーボードが来るので空けない） */
-.editor-screen[data-wide="false"] .chip-wrap {
-  bottom: calc(var(--sp-3) + env(safe-area-inset-bottom));
-}
-
-:root[data-kb] .editor-screen .chip-wrap {
-  bottom: var(--sp-3);
-}
-
-@keyframes chip-in {
-  from {
-    opacity: 0;
-    transform: translateX(-50%) translateY(8px);
+  input,
+  select,
+  textarea {
+    font-size: var(--text-input);
   }
-}
 
-.chip {
-  min-height: var(--tap);
-  padding: 0 var(--sp-4);
-  border: 0;
-  border-radius: var(--r-pill);
-  background: var(--panel);
-  color: var(--accent);
-  box-shadow: var(--shadow-float);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+  button,
+  a,
+  [role="button"] {
+    touch-action: manipulation;
+  }
+
+  button {
+    cursor: pointer;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
 
-.chip-close {
-  flex: none;
-  width: var(--tap);
-  padding: 0;
-  color: var(--muted);
-}
-
-/* ---- プレビュー ---- */
-
-.preview-pane {
-  position: relative;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.preview-frame {
-  flex: 1;
-  width: 100%;
-  border: 0;
-  background: #fff;
-}
-
-/* 1 ペインではプレビューが画面の最下段まで来るので、ホームバーの分を空ける */
-.editor-screen[data-wide="false"] .pane-preview {
-  padding-bottom: env(safe-area-inset-bottom);
-}
-
-.preview-compile {
-  margin: var(--sp-2);
-  padding: 6px var(--sp-3);
-  border-radius: var(--r-box);
-  background: var(--error-bg);
-  font-size: 0.85rem;
-  overflow-wrap: anywhere;
-  max-height: 30%;
-  overflow-y: auto;
-}
-
-/* ---- 本・画像 ---- */
-
-.pane-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-2);
-  align-items: center;
-  padding: var(--sp-2) var(--sp-3);
-  background: var(--panel);
-  flex: none;
-}
-
-/* 本タブの 1 行目: プロファイル（伸びる）+ ビルド。折り返さない */
-.book-bar {
-  flex-wrap: nowrap;
-}
-
-.book-bar .select {
-  flex: 1;
-}
-
-.book-bar .btn {
-  flex: none;
-}
-
-.book-auto {
-  margin-left: auto;
-  flex: none;
-}
-
-.book-status .badge {
-  flex: none;
-}
-
-/* 状態の文は 1 行に収める（失敗したときも 2 行にしない）。タップで全文 */
-.book-summary {
-  flex: 0 1 auto;
-  min-width: 0;
-  min-height: var(--tap);
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
-}
-
-.book-summary.error {
-  color: var(--error);
-}
-
-.book-summary[data-expanded="true"] {
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-
-.pdf-download {
-  min-height: var(--tap);
-  padding: 0 var(--sp-3);
-  background: var(--box);
-  font-size: 0.85rem;
-}
-
-.select {
-  min-height: var(--tap);
-  min-width: 0;
-  max-width: 100%;
-  padding: 0 10px;
-  border: 0;
-  border-radius: var(--r-box);
-  background: var(--box);
-}
-
-.check {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: var(--tap);
-  padding: 0 var(--sp-1);
-  font-size: 0.9rem;
-}
-
-.check input {
-  width: 20px;
-  height: 20px;
-  margin: 0;
-  accent-color: var(--accent);
-}
-
-.book-pane,
-.images-pane {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  background: var(--panel);
-}
-
-.images-pane {
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-.book-status {
-  display: flex;
-  flex-wrap: nowrap;
-  gap: var(--sp-1) var(--sp-2);
-  align-items: center;
-  padding: 0 var(--sp-3) 6px;
-  flex: none;
-}
-
-.diags {
-  flex: none;
-  max-height: 35%;
-  overflow-y: auto;
-  margin: 0 var(--sp-2) var(--sp-2);
-}
-
-.diags summary {
-  min-height: var(--tap);
-  display: flex;
-  align-items: center;
-  padding: 0 var(--sp-3);
-  border-radius: var(--r-box);
-  background: var(--box);
-  cursor: pointer;
-}
-
-.diag-list {
-  list-style: none;
-  margin: var(--sp-1) 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-}
-
-.diag {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px var(--sp-2);
-  width: 100%;
-  min-height: var(--tap);
-  padding: var(--sp-2) var(--sp-3);
-  border: 0;
-  border-radius: var(--r-box);
-  background: var(--box);
-  text-align: left;
-  font-size: 0.85rem;
-  overflow-wrap: anywhere;
-}
-
-.diag-link:active {
-  background: var(--box-press);
-}
-
-.diag-sev.error {
-  color: var(--error);
-  font-weight: 600;
-}
-
-.diag-sev.warn {
-  color: var(--warn);
-  font-weight: 600;
-}
-
-.diag-where {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  color: var(--accent);
-}
-
-.diag-msg {
-  flex-basis: 100%;
-}
-
-.pdf-viewer {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-/* PDF の台と、その上に重ねる「まだビルドされていません」などの文言 */
-.pdf-stage {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  padding: 0 var(--sp-2) var(--sp-2);
-}
-
-.editor-screen[data-wide="false"] .pdf-stage {
-  padding-bottom: calc(var(--sp-2) + env(safe-area-inset-bottom));
-}
-
-/* PDF の台（パネルより沈んだ面） */
-.pdf-scroller {
-  flex: 1;
-  min-height: 0;
-  border-radius: var(--r-box);
-  background: var(--pdf-bg);
-  overflow: auto;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-}
-
-.pdf-inner {
-  position: relative;
-  margin: 0 auto;
-}
-
-.pdf-page {
-  position: absolute;
-  left: 12px;
-  background: #fff;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 0.18);
-}
-
-.pdf-page canvas {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.pdf-empty,
-.pdf-error {
-  position: absolute;
-  top: var(--sp-4);
-  left: 0;
-  right: 0;
-  text-align: center;
-}
-
-.pdf-bar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--sp-1);
-  padding: 0 var(--sp-2) var(--sp-2) var(--sp-3);
-  background: var(--panel);
-  flex: none;
-}
-
-.pdf-bar .icon-btn,
-.pdf-bar .btn-text {
-  background: var(--box);
-}
-
-.pdf-pagenum {
-  margin-right: auto;
-  font-size: 0.85rem;
-  color: var(--muted);
-}
-
-/* アップロードのバーは、一覧をスクロールしても上に残す */
-.images-pane .pane-bar {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-}
-
-.images-pane .list {
-  padding: 0 var(--sp-2) var(--sp-4);
-}
-
-.editor-screen[data-wide="false"] .images-pane .list {
-  padding-bottom: calc(var(--sp-4) + env(safe-area-inset-bottom));
-}
-
-.img-row {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-1);
-  min-height: 64px;
-  padding-right: var(--sp-2);
-  border-radius: var(--r-box);
-  background: var(--box);
-}
-
-.img-row-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-  min-height: 64px;
-  padding: var(--sp-2) var(--sp-3);
-  border: 0;
-  border-radius: var(--r-box);
-  background: transparent;
-  text-align: left;
-}
-
-.img-row-main:active {
-  background: var(--box-press);
-}
-
-.img-row .link-btn {
-  padding: 0 var(--sp-3);
-  border-radius: var(--r-pill);
-  background: var(--panel);
-}
-
-.img-row-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.img-thumb {
-  flex: none;
-  width: 48px;
-  height: 48px;
-  object-fit: contain;
-  border-radius: var(--r-thumb);
-  background: var(--panel);
-}
-
-.img-thumb-none {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--muted);
-}
-
-.img-src {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 0.85rem;
-  overflow-wrap: anywhere;
-}
-
-.insert-code {
-  display: block;
-  margin-bottom: var(--sp-2);
-  overflow-wrap: anywhere;
-}
-
-/* 画像シート（Base UI Drawer。背景を塞がない） */
-.sheet-viewport {
-  position: fixed;
-  inset: 0;
-  bottom: var(--kb);
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  pointer-events: none;
-  z-index: 20;
-}
-
-.sheet {
-  pointer-events: auto;
-  width: 100%;
-  max-width: 560px;
-  max-height: min(70dvh, calc(100dvh - var(--kb) - 48px));
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: var(--sp-2) var(--sp-4) calc(var(--sp-4) + env(safe-area-inset-bottom));
-  border-radius: var(--r-sheet) var(--r-sheet) 0 0;
-  background: var(--panel);
-  box-shadow: var(--shadow-float);
-  outline: 0;
-  transform: translateY(var(--drawer-swipe-movement-y, 0px));
-  transition: transform 300ms var(--ease-drawer);
-}
-
-/* 2 ペインでは、エディタのある側の半分に寄せる（プレビューを見ながら動かせるように） */
-.sheet-viewport[data-side] {
-  padding: 0 var(--sp-2);
-}
-
-.sheet-viewport[data-side="left"] {
-  justify-content: flex-start;
-}
-
-.sheet-viewport[data-side="right"] {
-  justify-content: flex-end;
-}
-
-.sheet-viewport[data-side] .sheet {
-  width: calc(50% - var(--sp-1));
-  max-width: none;
-}
-
-.sheet[data-starting-style],
-.sheet[data-ending-style] {
-  transform: translateY(100%);
-}
-
-.sheet[data-ending-style] {
-  transition-duration: 200ms;
-}
-
-.sheet[data-swiping] {
-  transition-duration: 0ms;
-}
-
-.sheet-handle {
-  width: 40px;
-  height: 4px;
-  margin: var(--sp-1) auto var(--sp-2);
-  border-radius: 2px;
-  background: var(--box-press);
-}
-
-.sheet-title {
-  margin: 0 0 var(--sp-2);
-  font-size: 1rem;
-}
-
-.img-editor {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-4);
-}
-
-.img-editor .notice {
-  margin: 0;
-}
-
-.img-head {
-  display: flex;
-  gap: var(--sp-3);
-  align-items: center;
-  min-width: 0;
-}
-
-.img-head .img-thumb {
-  width: 64px;
-  height: 64px;
-  background: var(--box);
-}
-
-.img-head-text {
-  min-width: 0;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  min-width: 0;
-}
-
-.field-label {
-  padding: 0;
-  font-size: 0.85rem;
-  color: var(--muted);
-}
-
-.input {
-  min-height: var(--tap);
-  width: 100%;
-  padding: 0 10px;
-  border: 0;
-  border-radius: var(--r-box);
-  background: var(--box);
-}
-
-/* 不正な値は線ではなく outline で示す（文言は別に出す） */
-.input.invalid,
-.num input:invalid {
-  outline: 2px solid var(--error);
-  outline-offset: 0;
-}
-
-.seg {
-  display: flex;
-  gap: var(--sp-1);
-}
-
-.seg-btn {
-  min-height: var(--tap);
-  min-width: var(--tap);
-  padding: 0 var(--sp-3);
-  border: 0;
-  border-radius: var(--r-box);
-  background: var(--box);
-}
-
-.seg-btn[aria-pressed="true"] {
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.slider-row {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-}
-
-.slider {
-  flex: 1;
-  min-width: 0;
-  height: var(--tap);
-  accent-color: var(--accent);
-  /* スライダーは横に動かすので、縦のスクロールだけ許す */
-  touch-action: pan-y;
-}
-
-.num {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-1);
-  flex: none;
-}
-
-.num input {
-  width: 5.5em;
-  min-height: var(--tap);
-  padding: 0 var(--sp-2);
-  border: 0;
-  border-radius: var(--r-box);
-  background: var(--box);
-}
-
-.sheet-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--sp-2);
-}
-
-/* ---- ダイアログ ---- */
-
-.dialog-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgb(0 0 0 / 0.35);
-  transition: opacity 200ms var(--ease-out);
-  z-index: 30;
-}
-
-.dialog-backdrop[data-starting-style],
-.dialog-backdrop[data-ending-style] {
-  opacity: 0;
-}
-
-.dialog {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  z-index: 31;
-  width: min(420px, calc(100vw - 32px));
-  padding: 20px;
-  border-radius: var(--r-panel);
-  background: var(--panel);
-  box-shadow: 0 16px 48px rgb(0 0 0 / 0.24);
-  transform: translate(-50%, -50%);
-  transition:
-    opacity 200ms var(--ease-out),
-    transform 200ms var(--ease-out);
-}
-
-.dialog[data-starting-style],
-.dialog[data-ending-style] {
-  opacity: 0;
-  transform: translate(-50%, -50%) scale(0.96);
-}
-
-.dialog-title {
-  margin: 0 0 var(--sp-2);
-  font-size: 1.05rem;
-}
-
-.dialog-text {
-  margin: 0 0 var(--sp-4);
-  color: var(--muted);
-  overflow-wrap: anywhere;
-}
-
-.dialog-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: var(--sp-2);
 }
 
 @media (prefers-reduced-motion: reduce) {

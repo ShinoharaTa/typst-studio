@@ -51,4 +51,13 @@ describe("ImageSheet", () => {
     expect(document.body.textContent).toContain("編集不可");
     await act(async () => root.unmount());
   });
+
+  it("keeps the actions in the footer pinned to the bottom of the sheet (a direct child, so sticky works)", async () => {
+    const root = await render(null);
+    const footer = document.querySelector<HTMLElement>("[data-slot=sheet-footer]");
+    expect(footer?.parentElement?.dataset.slot).toBe("sheet");
+    expect(footer?.className.split(" ")).toEqual(expect.arrayContaining(["sticky", "bottom-0", "surface-popover"]));
+    expect([...footer!.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["ソースへ", "閉じる"]);
+    await act(async () => root.unmount());
+  });
 });

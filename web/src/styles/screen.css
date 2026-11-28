@@ -1,0 +1,437 @@
+/* 画面の骨組み。styles.css から layer(components) で読み込む（部品の見た目は components/ui/ のユーティリティ）。
+   ここに書くのは、幅（data-wide）・入れ替え（data-swap）・キーボード（:root[data-kb]）・safe-area で変わる配置だけ。
+   ここで決める性質（display・flex・margin・padding）は、同じ要素のユーティリティで重ねて書かない
+   （ユーティリティの層が勝つので、ここの規則が効かなくなる）。
+   余白は 4 / 8 / 12 / 16 / 24 / 32（行内だけ 2）。画面の外周（ヘッダ・2 ペインの隙間）は 8、ペインの内側は 12 */
+
+/* トーストの上端（components/ui/sonner.tsx）。一覧の画面ではヘッダに重ねてよい。
+   編集画面（1 ペイン）はヘッダとタブの段の下、キーボード表示中は「‹」とタブの 1 段の下、2 ペインはヘッダの下に、8px 空けて出す。
+   ヘッダの高さは固定にしてある（JS で測らない）: 題は 1 行で省略（.topbar-title）、題の下の行も折り返さず
+   バッジの中で省略し（.topbar-sub・GitBadge の compact）、空でも 1 行分の高さを取る。文字の大きさは px のトークンなので、
+   OS の文字サイズの設定でも変わらない。ヘッダの作りを変えたら、ここの内訳も直す（375・320 幅の計測で確かめた値）:
+     ヘッダの文字の段 57 = 上下の余白 4 + 4（.topbar-text）+ 題 26（20px × 1.3）+ 題の下の行 23（バッジ: 13px × 1.45 + 上下 2 + 2）
+     1 ペイン: 57 + 段の間 4（.topbar の gap）+ タブ 44 + タブの下 8 = 113
+     キーボード表示中（1 ペイン）: 上 4 + タブ 44 + 下 4 = 52
+     2 ペイン: 57（題とタブが同じ段。タブ 44 より文字の段が高い） */
+:root {
+  --toast-top: calc(env(safe-area-inset-top) + 8px);
+}
+
+:root:has(.editor-screen[data-wide="false"]) {
+  --toast-top: calc(env(safe-area-inset-top) + 113px + 8px);
+}
+
+:root[data-kb]:has(.editor-screen[data-wide="false"]) {
+  --toast-top: calc(env(safe-area-inset-top) + 52px + 8px);
+}
+
+:root:has(.editor-screen[data-wide="true"]) {
+  --toast-top: calc(env(safe-area-inset-top) + 57px + 8px);
+}
+
+/* ---- 画面・ヘッダ ---- */
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - var(--kb));
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  overflow: hidden;
+  background: var(--background);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 52px;
+  padding: env(safe-area-inset-top) 8px 0;
+  background: var(--background);
+  flex: none;
+}
+
+.topbar-main {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+/* 「‹」の無い画面（プロジェクト一覧）の題は、一覧の行の文字と左端を揃える（外周 8 + 16 = 行の 12 + 12） */
+.topbar > .topbar-title {
+  padding: 0 16px;
+}
+
+/* 一覧の画面は、ヘッダも本文（ListMain の最大幅 640 + 左右 12）と同じ幅で中央に置く */
+.list-screen > .topbar {
+  width: 100%;
+  max-width: calc(var(--container-list) + 24px);
+  margin: 0 auto;
+}
+
+.topbar-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  padding: 4px;
+}
+
+/* 画面の題（text-screen・semibold）。どの画面でも同じ大きさ */
+.topbar-title {
+  font-size: var(--text-screen);
+  line-height: var(--text-screen--line-height);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 題の下の 1 行（記事へ戻る・ブランチ・保存の警告）。折り返さない（長いものは各バッジの中で省略する）。
+   折り返すとヘッダが伸び、決め打ちのトーストの位置（--toast-top）がタブを覆う */
+.topbar-sub {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  min-width: 0;
+  /* 中が空でも 1 行分（バッジの高さ）を取る。ヘッダの高さを一定にする */
+  min-height: calc(var(--text-caption) * var(--text-caption--line-height) + 4px);
+}
+
+/* ---- 編集画面のペイン ---- */
+
+.panes {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+/* 1 ペイン: 全部のペインを重ねて置き、見えないものは visibility で隠す（アンマウントしない。
+   iframe の接続や PDF のスクロール位置をそのまま保つ） */
+.pane {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  @apply surface-card;
+}
+
+.pane[data-active="false"] {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* 編集のペインは、本文（エディタ）と入力補助（ツールバー）を同じパネルの面に載せる。
+   ツールバーを背景色にすると、エディタから切り離された別の部品に見える */
+.pane-edit {
+  @apply surface-card;
+}
+
+.editor-screen[data-wide="false"] .side,
+.editor-screen[data-wide="false"] .side-body {
+  display: contents;
+}
+
+/* 2 ペイン（900px 以上）。行の高さを .panes の高さに固定する。
+   auto のままだと行が中身（文書全体）の高さまで伸び、エディタがスクロールできなくなる。
+   ペインどうしは 8px 空ける（フォルダブルではこの隙間がヒンジに重なる） */
+.editor-screen[data-wide="true"] .panes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 8px;
+  padding: 0 8px 8px;
+}
+
+.editor-screen[data-wide="true"] .pane-edit {
+  position: relative;
+  min-height: 0;
+  /* 角丸はツールバーごと包む（ツールバーをパネルの外に出さない。左右のパネルの上下端が揃う） */
+  border-radius: var(--radius-panel);
+  overflow: hidden;
+}
+
+/* 左右の入れ替え。DOM の順は変えない（プレビューの iframe を読み込み直さない） */
+.editor-screen[data-wide="true"][data-swap="true"] .pane-edit {
+  order: 2;
+}
+
+/* 2 ペインのヘッダは panes と同じ 2 列（同じ左右の余白と隙間）。題は編集側の列、タブは右ペイン側の列。
+   入れ替えると、どちらもペインと一緒に入れ替わる */
+.editor-screen[data-wide="true"] .topbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 0 minmax(0, 1fr);
+  column-gap: 4px;
+}
+
+.editor-screen[data-wide="true"] .topbar-main {
+  order: 1;
+}
+
+.editor-screen[data-wide="true"] .swap-btn {
+  order: 2;
+}
+
+.editor-screen[data-wide="true"] .topbar .view-tabs {
+  order: 3;
+}
+
+.editor-screen[data-wide="true"][data-swap="true"] .topbar-main {
+  order: 3;
+}
+
+.editor-screen[data-wide="true"][data-swap="true"] .topbar .view-tabs {
+  order: 1;
+}
+
+/* 入れ替え: ペインの境目の真上（幅 0 の列の中央）。入れ替えても位置が変わらない。
+   地なしの文字ボタンにして、タブのトラックの外に離して置く（4 つ目のタブに見せない） */
+.swap-btn {
+  justify-self: center;
+  /* 列の外へはみ出す分も、隣の列より上で押せるようにする */
+  z-index: 1;
+  width: var(--swap-w);
+}
+
+.editor-screen {
+  --swap-w: 104px;
+}
+
+/* 入れ替えボタンの分と、その両側 12px（列の隙間 4px + 8px）を境目の側に空ける。
+   padding ではなく margin で空ける（padding だと隣の列の箱がボタンの上に重なり、押せない所ができる） */
+.editor-screen[data-wide="true"] {
+  --swap-room: calc(var(--swap-w) / 2 + 8px);
+}
+
+.editor-screen[data-wide="true"] .topbar-main {
+  margin-right: var(--swap-room);
+}
+
+.editor-screen[data-wide="true"] .topbar .view-tabs {
+  margin-left: var(--swap-room);
+}
+
+.editor-screen[data-wide="true"][data-swap="true"] .topbar-main {
+  margin-right: 0;
+  margin-left: var(--swap-room);
+}
+
+.editor-screen[data-wide="true"][data-swap="true"] .topbar .view-tabs {
+  margin-left: 0;
+  margin-right: var(--swap-room);
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.side-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  border-radius: var(--radius-panel);
+  overflow: hidden;
+  @apply surface-card;
+}
+
+/* 表示の切り替え（TabsList）。幅・キーボードの有無によらず上端（切り替える面の真上）に置く。キーボード表示中も隠さない */
+.view-tabs {
+  flex: none;
+}
+
+/* 1 ペインはヘッダの 2 段目（題の下、全幅） */
+.editor-screen[data-wide="false"] .topbar {
+  flex-wrap: wrap;
+}
+
+.editor-screen[data-wide="false"] .topbar-main {
+  flex: 1 1 100%;
+  min-height: 52px;
+}
+
+.editor-screen[data-wide="false"] .topbar .view-tabs {
+  flex: 1 1 100%;
+  margin-bottom: 8px;
+}
+
+/* キーボード表示中（1 ペイン）は、題を隠して「‹」とタブを 1 段にする（固定の段を減らし、エディタの行数を残す）。
+   保存の状態はツールバーの「保存」が示す。衝突はダイアログ、失敗はトーストと「保存」の色で分かる。
+   タブの文字を小さくするのは EditorScreen の kb: の variant */
+:root[data-kb] .editor-screen[data-wide="false"] .topbar {
+  flex-wrap: nowrap;
+  min-height: 0;
+  padding-top: calc(env(safe-area-inset-top) + 4px);
+  padding-bottom: 4px;
+}
+
+:root[data-kb] .editor-screen[data-wide="false"] .topbar-main {
+  flex: none;
+  min-height: 0;
+}
+
+:root[data-kb] .editor-screen[data-wide="false"] .topbar-text {
+  display: none;
+}
+
+:root[data-kb] .editor-screen[data-wide="false"] .topbar .view-tabs {
+  flex: 1 1 0;
+  margin-bottom: 0;
+}
+
+/* ---- エディタ ---- */
+
+.editor-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  @apply surface-card;
+}
+
+/* 本文の下端をパネル色へ薄くフェードさせる（線を使わずに、途中で切れた行と記号キーの境目を作る）。
+   高さは EditorScreen の EDGE_FADE と合わせる。診断の帯（z-index: 3）より下 */
+.editor-wrap::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  height: 12px;
+  background: linear-gradient(to bottom, transparent, var(--card));
+  pointer-events: none;
+}
+
+.editor-wrap[data-loading="true"] {
+  opacity: 0.5;
+}
+
+/* 入力補助（Toolbar）。上はフェードした本文との間を空ける */
+.edit-toolbar {
+  padding: 8px 12px 4px;
+}
+
+/* 1 ペインではツールバーが画面の最下段になる（キーボード表示中は下にキーボードが来るので空けない） */
+.editor-screen[data-wide="false"] .edit-toolbar {
+  padding-bottom: calc(4px + env(safe-area-inset-bottom));
+}
+
+:root[data-kb] .editor-screen .edit-toolbar {
+  padding-bottom: 4px;
+}
+
+/* 「ソースへ」チップ */
+.chip-wrap {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  z-index: 5;
+  display: flex;
+  gap: 4px;
+  max-width: calc(100% - 24px);
+  transform: translateX(-50%);
+  animation: chip-in 200ms var(--ease-out);
+}
+
+/* 1 ペインでは画面の最下段に来る（キーボード表示中は下にキーボードが来るので空けない） */
+.editor-screen[data-wide="false"] .chip-wrap {
+  bottom: calc(12px + env(safe-area-inset-bottom));
+}
+
+:root[data-kb] .editor-screen .chip-wrap {
+  bottom: 12px;
+}
+
+@keyframes chip-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px);
+  }
+}
+
+/* ---- プレビュー・本・画像 ---- */
+
+/* 紙の台（Stage）。PDF とプレビューで同じ作り。左右と下はペインの余白。プレビューは上に操作の段が無いので上も空ける */
+.stage {
+  padding: 0 12px 12px;
+}
+
+.pane-preview .stage {
+  padding-top: 12px;
+}
+
+.editor-screen[data-wide="false"] .stage {
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+}
+
+/* PdfView（lib/pdf-view.ts）が作る要素 */
+.pdf-inner {
+  position: relative;
+  margin: 0 auto;
+}
+
+.pdf-page {
+  position: absolute;
+  left: 12px;
+  background: var(--paper);
+  box-shadow: var(--elev-page);
+}
+
+.pdf-page canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.images-list {
+  padding: 0 12px 16px;
+}
+
+.editor-screen[data-wide="false"] .images-list {
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+}
+
+/* ---- 画像シート（Sheet）の置き場 ---- */
+
+.sheet-viewport {
+  position: fixed;
+  inset: 0;
+  bottom: var(--kb);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 20;
+}
+
+/* シートの幅もここで決める（2 ペインの寄せと同じ規則で上書きするので、ユーティリティにしない） */
+.sheet {
+  width: 100%;
+  max-width: 560px;
+}
+
+/* 2 ペインでは、エディタのある側の半分に寄せる（プレビューを見ながら動かせるように） */
+.sheet-viewport[data-side] {
+  padding: 0 8px;
+}
+
+.sheet-viewport[data-side="left"] {
+  justify-content: flex-start;
+}
+
+.sheet-viewport[data-side="right"] {
+  justify-content: flex-end;
+}
+
+.sheet-viewport[data-side] .sheet {
+  width: calc(50% - 4px);
+  max-width: none;
+}

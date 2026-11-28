@@ -6,6 +6,14 @@ import { useStudioEvent } from "../lib/hooks";
 import { usePref } from "../lib/prefs";
 import { AutoBuild, isBuildInput } from "../lib/schedule";
 import { PdfViewer } from "./PdfViewer";
+import { Alert } from "./ui/alert";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { Disclosure, DisclosureSummary } from "./ui/disclosure";
+import { Checkbox, Label, NativeSelect } from "./ui/input";
+import { List, ListItem, ListItemButton, ListItemContent, ListItemDescription, ListItemTitle } from "./ui/list";
+import { PanelBar } from "./ui/panel";
+import { cn } from "../lib/cn";
 
 // 本全体のプレビュー（= 検証ビルド。spec 4.6 / 3.3.4）
 export function BookPane(props: {
@@ -84,12 +92,20 @@ export function BookPane(props: {
   const onDiagnostics = props.onDiagnostics;
   useEffect(() => onDiagnostics(diags), [diags, onDiagnostics]);
 
+  // ビルドは本タブの主の操作（primary）。まだビルドされていないときは PDF の台の中央にも出す。
+  // 台の中央のものは secondary（同じ画面に primary を 2 つ置かない）
+  const buildButton = (variant: "primary" | "secondary") => (
+    <Button variant={variant} onClick={() => void build()} disabled={!profile}>
+      {status?.state === "running" ? "ビルド中…" : status?.state === "queued" ? "待ち 1 件" : "ビルド"}
+    </Button>
+  );
+
   return (
-    <div className="book-pane">
+    <div className="flex min-h-0 flex-1 flex-col">
       {/* 1 行目はプロファイルとビルドだけ（スマホで PDF の場所を空ける）。ダウンロードは PDF のバー、自動ビルドは状態の行へ */}
-      <div className="pane-bar book-bar">
-        <select
-          className="select"
+      <PanelBar className="book-bar flex-nowrap">
+        <NativeSelect
+          className="flex-1"
           value={profile ?? ""}
           onChange={(e) => setProfile(e.target.value)}
           aria-label="プロファイル"
@@ -100,57 +116,52 @@ export function BookPane(props: {
               {p}
             </option>
           ))}
-        </select>
-        <button type="button" className="btn btn-primary" onClick={() => void build()} disabled={!profile}>
-          {status?.state === "running" ? "ビルド中…" : status?.state === "queued" ? "待ち 1 件" : "ビルド"}
-        </button>
-      </div>
+        </NativeSelect>
+        {buildButton("primary")}
+      </PanelBar>
 
-      <div className="book-status">
+      <PanelBar className="book-status flex-nowrap">
         <BuildSummary status={status} />
-        {status?.stale && <span className="badge warn">未反映の変更あり</span>}
-        <label className="check book-auto">
-          <input
-            type="checkbox"
-            checked={autoOn}
-            onChange={(e) => setAutoPref(e.target.checked ? "on" : "off")}
-          />
+        {status?.stale && (
+          <Badge variant="warning" className="flex-none">
+            未反映の変更あり
+          </Badge>
+        )}
+        <Label className="ml-auto flex-none">
+          <Checkbox checked={autoOn} onChange={(e) => setAutoPref(e.target.checked ? "on" : "off")} />
           自動ビルド
-        </label>
-      </div>
+        </Label>
+      </PanelBar>
 
-      {error && <p className="notice error">{error}</p>}
+      {error && <Alert variant="destructive">{error}</Alert>}
       {nomem && (
-        <div className="notice error">
-          <p>
-            空きメモリが足りないのでビルドできません
-            {nomem.available !== undefined && nomem.required !== undefined
-              ? `（空き ${mb(nomem.available)} / 必要 ${mb(nomem.required)}）`
-              : ""}
-            。
-          </p>
-          <button type="button" className="btn" onClick={() => void build(true)}>
-            プレビューを止めてビルド
-          </button>
-        </div>
+        <Alert variant="destructive" action={<Button onClick={() => void build(true)}>プレビューを止めてビルド</Button>}>
+          空きメモリが足りないのでビルドできません
+          {nomem.available !== undefined && nomem.required !== undefined ? `（空き ${mb(nomem.available)} / 必要 ${mb(nomem.required)}）` : ""}。
+        </Alert>
       )}
 
       {diags.length > 0 && (
-        <details className="diags" open={last ? !last.ok : false}>
-          <summary>
+        <Disclosure className="mx-3 mb-2 max-h-[35%] flex-none overflow-y-auto" open={last ? !last.ok : false}>
+          <DisclosureSummary>
             診断 {diags.length} 件（エラー {diags.filter((d) => d.severity === "error").length}）
-          </summary>
-          <ul className="diag-list">
+          </DisclosureSummary>
+          <List className="mt-2">
             {diags.map((d, i) => (
               <li key={i}>
                 <DiagRow d={d} onGoto={props.onGoto} />
               </li>
             ))}
-          </ul>
-        </details>
+          </List>
+        </Disclosure>
       )}
 
-      <PdfViewer url={success?.pdfUrl ?? null} active={props.active} downloadUrl={success?.pdfUrl ?? null} />
+      <PdfViewer
+        url={success?.pdfUrl ?? null}
+        active={props.active}
+        downloadUrl={success?.pdfUrl ?? null}
+        empty={status?.state === "running" || status?.state === "queued" ? undefined : buildButton("secondary")}
+      />
     </div>
   );
 }
@@ -190,7 +201,11 @@ function BuildSummary({ status }: { status: BuildStatus | null }) {
   return (
     <button
       type="button"
-      className={failed ? "book-summary small error" : "book-summary small"}
+      className={cn(
+        "book-summary min-h-11 min-w-0 flex-[0_1_auto] text-left text-caption",
+        expanded ? "overflow-hidden wrap-anywhere" : "truncate",
+        failed && "text-destructive",
+      )}
       data-expanded={expanded}
       aria-expanded={expanded}
       title={text}
@@ -201,19 +216,20 @@ function BuildSummary({ status }: { status: BuildStatus | null }) {
   );
 }
 
+// 診断の 1 件（一覧の行）。題は内容、説明は 重さ・場所。場所があれば押すとソースへ
 function DiagRow({ d, onGoto }: { d: Diagnostic; onGoto(file: string, line: number, column: number): void }) {
   const where = d.file ? `${d.file}${d.line ? `:${d.line}` : ""}${d.column ? `:${d.column}` : ""}` : "";
   const body = (
-    <>
-      <span className={d.severity === "error" ? "diag-sev error" : "diag-sev warn"}>{d.severity === "error" ? "エラー" : "警告"}</span>
-      {where && <span className="diag-where">{where}</span>}
-      <span className="diag-msg">{d.message}</span>
-    </>
+    <ListItemContent>
+      <ListItemTitle>{d.message}</ListItemTitle>
+      <ListItemDescription>
+        <Badge variant={d.severity === "error" ? "destructive" : "warning"} className="mr-2">
+          {d.severity === "error" ? "エラー" : "警告"}
+        </Badge>
+        {where && <span className="font-mono">{where}</span>}
+      </ListItemDescription>
+    </ListItemContent>
   );
-  if (!d.file || !d.line) return <div className="diag">{body}</div>;
-  return (
-    <button type="button" className="diag diag-link" onClick={() => onGoto(d.file!, d.line!, d.column ?? 1)}>
-      {body}
-    </button>
-  );
+  if (!d.file || !d.line) return <ListItem>{body}</ListItem>;
+  return <ListItemButton onClick={() => onGoto(d.file!, d.line!, d.column ?? 1)}>{body}</ListItemButton>;
 }

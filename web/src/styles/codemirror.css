@@ -1,0 +1,114 @@
+/* CodeMirror の上書き。CodeMirror は自分の CSS を @layer の外に入れるので、このファイルも @layer に入れない。
+   色はデザインシステムのトークン（styles.css の :root）を使う */
+
+.code-editor {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.code-editor .cm-editor {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  background: var(--card);
+  font-size: var(--text-input);
+}
+
+/* CodeMirror の既定のフォーカスの点線を消す（線を使わない。フォーカスはカーソルと現在行の強調で分かる） */
+.code-editor .cm-editor.cm-focused {
+  outline: none;
+}
+
+.code-editor .cm-scroller {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK JP", monospace;
+  line-height: 1.6;
+  overscroll-behavior: contain;
+}
+
+/* 行番号の右の線（CodeMirror の既定）は消し、本文との間を空ける */
+.code-editor .cm-gutters {
+  border: 0;
+  background: var(--card);
+  color: var(--muted-foreground);
+  font-size: var(--text-caption);
+  padding-right: 8px;
+}
+
+.code-editor .cm-activeLine,
+.code-editor .cm-activeLineGutter {
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+}
+
+/* フォーカスが無い間は現在行の強調を消す（カーソルも消えるので、強調があれば入力できる状態と分かる）。
+   診断のある行は除く（この規則は詳細度が高く、狭い画面の診断の地の色まで消してしまう） */
+.code-editor .cm-editor:not(.cm-focused) .cm-activeLine:not(.cm-diag-line),
+.code-editor .cm-editor:not(.cm-focused) .cm-activeLineGutter {
+  background: transparent;
+}
+
+.code-editor .cm-content {
+  caret-color: var(--foreground);
+}
+
+/* 最終行が下端のフェード（.editor-wrap::after の 12px）に掛からないよう、その分だけ下を空ける。
+   CodeMirror の既定（.ͼ1 .cm-content）より詳細度を上げる */
+.code-editor .cm-editor .cm-content {
+  padding-bottom: 12px;
+}
+
+.code-editor .cm-cursor {
+  border-left-color: var(--foreground);
+}
+
+.code-editor .cm-selectionBackground,
+.code-editor .cm-focused .cm-selectionBackground {
+  background: color-mix(in srgb, var(--primary) 28%, transparent) !important;
+}
+
+.code-editor .cm-lint-marker {
+  width: 0.9em;
+  height: 0.9em;
+}
+
+/* 幅の狭い画面では lint の列を外すので、診断のある行は行の地の色で示す */
+/* 選択範囲（その下に描かれる）が見えるように半透明にする */
+.code-editor[data-compact="true"] .cm-diag-error {
+  background: color-mix(in srgb, var(--destructive) 14%, transparent);
+}
+
+.code-editor[data-compact="true"] .cm-diag-warning {
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+}
+
+/* 画像シートを開いている間は読み取り専用 */
+.code-editor[data-readonly="true"] .cm-editor {
+  opacity: 0.65;
+}
+
+/* lint の吹き出し（900px 以上でホバーしたとき）。既定の線（枠・診断の左の太線）を消し、浮く面にする。
+   重さは線ではなく文字の色で示す */
+.code-editor .cm-tooltip {
+  border: 0;
+  border-radius: var(--radius-box);
+  background: var(--popover);
+  color: var(--foreground);
+  box-shadow: var(--elev-float);
+  overflow: hidden;
+}
+
+.code-editor .cm-tooltip .cm-diagnostic {
+  border: 0;
+  padding: 8px 12px;
+  font-size: var(--text-caption);
+}
+
+.code-editor .cm-tooltip .cm-diagnostic-error {
+  color: var(--destructive);
+}
+
+.code-editor .cm-tooltip .cm-diagnostic-warning {
+  color: var(--warning);
+}

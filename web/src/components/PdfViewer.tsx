@@ -1,10 +1,28 @@
 import { useEffect, useRef, useState } from "react";
 import type { PdfView } from "../lib/pdf-view";
 import { stepZoom } from "../lib/pdfpos";
+import { Download, Minus, Plus } from "lucide-react";
+import type { ReactNode } from "react";
+import { Alert } from "./ui/alert";
+import { Button, buttonVariants } from "./ui/button";
+import { EmptyState } from "./ui/empty-state";
+import { PanelBar, Stage, StageSurface } from "./ui/panel";
 
 // pdf.js で本全体の PDF を出す。url が変わったら、位置と拡大率を保ったまま裏で差し替える。
 // active になるまで pdf.js も PDF も読まない。隠れている間は差し替えず、出たときに最新へ差し替える
-export function PdfViewer({ url, active, downloadUrl }: { url: string | null; active: boolean; downloadUrl?: string | null }) {
+// empty: まだビルドされていないときに台の中央に出す次の操作（ビルドのボタン。同じ画面の主の操作と重ねないので secondary）
+// ページ番号・拡大縮小の段は、PDF があるときだけ出す
+export function PdfViewer({
+  url,
+  active,
+  downloadUrl,
+  empty,
+}: {
+  url: string | null;
+  active: boolean;
+  downloadUrl?: string | null;
+  empty?: ReactNode;
+}) {
   const scroller = useRef<HTMLDivElement>(null);
   const view = useRef<PdfView | null>(null);
   const [page, setPage] = useState({ page: 0, total: 0 });
@@ -58,34 +76,47 @@ export function PdfViewer({ url, active, downloadUrl }: { url: string | null; ac
   };
 
   return (
-    <div className="pdf-viewer">
-      {/* 操作部はペインの上端にまとめる（本タブの上の段: プロファイル・ビルド、状態、診断に続けて置く。PDF の台より上）。
-          下端に置くのは、キーボードの上に出る編集のツールバーだけ */}
-      <div className="pdf-bar">
-        <span className="pdf-pagenum" aria-live="polite">
-          {page.total ? `${page.page} / ${page.total}` : "—"}
-          {loading && " ・ 読み込み中"}
-        </span>
-        {downloadUrl && (
-          <a className="btn pdf-download" href={downloadUrl} download>
-            ダウンロード
-          </a>
+    // 段はペインの段の並びにそのまま続ける（Fragment。PanelBar は前の兄弟を見て上の余白を詰める）
+    <>
+      {/* 操作部はペインの上端にまとめる（本タブの上の段: プロファイル・ビルド、状態に続けて置く。PDF の台より上）。
+          下端に置くのは、キーボードの上に出る編集のツールバーだけ。拡大縮小は小さい地なしのボタンにして、ビルドを主にする */}
+      {url && (
+        <PanelBar className="pdf-bar flex-nowrap">
+          <span className="mr-auto text-caption text-muted-foreground" aria-live="polite">
+            {page.total ? `${page.page} / ${page.total}` : "—"}
+            {loading && " ・ 読み込み中"}
+          </span>
+          {downloadUrl && (
+            <a className={buttonVariants({ variant: "ghost", size: "sm" })} href={downloadUrl} download>
+              <Download />
+              ダウンロード
+            </a>
+          )}
+          <Button variant="ghost" size="sm" icon onClick={() => changeZoom(stepZoom(zoom, -1))} aria-label="縮小">
+            <Minus />
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => changeZoom(1)} aria-label="幅に合わせる">
+            {Math.round(zoom * 100)}%
+          </Button>
+          <Button variant="ghost" size="sm" icon onClick={() => changeZoom(stepZoom(zoom, 1))} aria-label="拡大">
+            <Plus />
+          </Button>
+        </PanelBar>
+      )}
+      <Stage>
+        {/* PDF の台（パネルより沈んだ面） */}
+        <StageSurface ref={scroller} />
+        {!url && (
+          <EmptyState fill action={empty}>
+            まだビルドされていません
+          </EmptyState>
         )}
-        <button type="button" className="icon-btn" onClick={() => changeZoom(stepZoom(zoom, -1))} aria-label="縮小">
-          −
-        </button>
-        <button type="button" className="btn-text" onClick={() => changeZoom(1)} aria-label="幅に合わせる">
-          {Math.round(zoom * 100)}%
-        </button>
-        <button type="button" className="icon-btn" onClick={() => changeZoom(stepZoom(zoom, 1))} aria-label="拡大">
-          ＋
-        </button>
-      </div>
-      <div className="pdf-stage">
-        <div className="pdf-scroller" ref={scroller} />
-        {!url && <p className="pdf-empty muted">まだビルドされていません</p>}
-        {error && <p className="notice error pdf-error">PDF を表示できません: {error}</p>}
-      </div>
-    </div>
+        {error && (
+          <Alert variant="destructive" className="absolute inset-x-0 top-0">
+            PDF を表示できません: {error}
+          </Alert>
+        )}
+      </Stage>
+    </>
   );
 }

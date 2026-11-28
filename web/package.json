@@ -16,16 +16,22 @@
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "^6.44.2",
     "@lezer/highlight": "^1.2.5",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "lucide-react": "1.72.0",
     "pdfjs-dist": "^6.5.438",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "sonner": "^2.0.8"
+    "sonner": "^2.0.8",
+    "tailwind-merge": "3.7.0"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "4.3.5",
     "@types/react": "^19.3.3",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.3.0",
     "jsdom": "^27.4.0",
+    "tailwindcss": "4.3.5",
     "vite": "^8.4.0"
   }
 }

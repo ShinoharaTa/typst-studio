@@ -1,4 +1,6 @@
-import { AlertDialog } from "@base-ui/react/alert-dialog";
+import { useRef } from "react";
+import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle } from "./ui/alert-dialog";
+import { Button } from "./ui/button";
 
 // 保存時にディスク側が変わっていた（409）。読み込み直すか、手元の内容で上書きするか（spec 6.4）
 //   rev が null: ファイルが無くなった（作り直すか、このまま編集を続けるか）
@@ -15,35 +17,30 @@ export function ConflictDialog(props: {
   const c = props.conflict;
   const gone = c?.rev === null;
   const unreadable = !gone && c?.content === null;
+  // 開いた直後のフォーカスはダイアログ自体に置く（どちらのボタンも手元かディスクの内容を捨てるので、先に当てない）
+  const popup = useRef<HTMLDivElement>(null);
   return (
-    <AlertDialog.Root open={props.open}>
-      <AlertDialog.Portal>
-        <AlertDialog.Backdrop className="dialog-backdrop" />
-        <AlertDialog.Popup className="dialog">
-          <AlertDialog.Title className="dialog-title">{gone ? "ファイルが無くなった" : "ディスク側が変わった"}</AlertDialog.Title>
-          <AlertDialog.Description className="dialog-text">
-            {gone
-              ? `${props.path} は別の場所（LLM・git・別の端末）で削除されたか、移動されました。この画面の内容で作り直せます。`
-              : unreadable
-                ? `${props.path} はディスク上で書き換えられ、この画面では読めない内容（2MB 超、または UTF-8 でない）になっています。上書きすると、その内容は失われます。`
-                : `${props.path} は開いた後に別の場所（LLM・git・別の端末）で書き換えられています。ディスクの内容を読み込み直すか、この画面の内容で上書きするかを選んでください。`}
-          </AlertDialog.Description>
-          <div className="dialog-actions">
-            {!gone && !unreadable ? (
-              <button type="button" className="btn" onClick={props.onReload}>
-                再読込（手元の編集を捨てる）
-              </button>
-            ) : (
-              <button type="button" className="btn" onClick={props.onDiscard}>
-                手元の編集を捨てる
-              </button>
-            )}
-            <button type="button" className="btn btn-danger" onClick={props.onOverwrite}>
-              {gone ? "作り直す" : "上書き"}
-            </button>
-          </div>
-        </AlertDialog.Popup>
-      </AlertDialog.Portal>
-    </AlertDialog.Root>
+    <AlertDialog open={props.open}>
+      <AlertDialogContent ref={popup} initialFocus={popup}>
+        <AlertDialogTitle>{gone ? "ファイルが無くなった" : "ディスク側が変わった"}</AlertDialogTitle>
+        <AlertDialogDescription>
+          {gone
+            ? `${props.path} は別の場所（LLM・git・別の端末）で削除されたか、移動されました。この画面の内容で作り直せます。`
+            : unreadable
+              ? `${props.path} はディスク上で書き換えられ、この画面では読めない内容（2MB 超、または UTF-8 でない）になっています。上書きすると、その内容は失われます。`
+              : `${props.path} は開いた後に別の場所（LLM・git・別の端末）で書き換えられています。ディスクの内容を読み込み直すか、この画面の内容で上書きするかを選んでください。`}
+        </AlertDialogDescription>
+        <AlertDialogFooter>
+          {!gone && !unreadable ? (
+            <Button onClick={props.onReload}>再読込（手元の編集を捨てる）</Button>
+          ) : (
+            <Button onClick={props.onDiscard}>手元の編集を捨てる</Button>
+          )}
+          <Button variant="destructive" onClick={props.onOverwrite}>
+            {gone ? "作り直す" : "上書き"}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

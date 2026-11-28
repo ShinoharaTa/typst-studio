@@ -1,7 +1,7 @@
-import { Drawer } from "@base-ui/react/drawer";
 import { useEffect, useRef, useState } from "react";
 import type { ImageCall } from "../api/types";
 import { ImageEditor, type ImageTarget } from "./ImageEditor";
+import { Sheet, SheetContent, SheetTitle } from "./ui/sheet";
 
 // 画像サイズのシート（下から出す）。プレビューを見ながら動かせるように、背景を塞がない
 export function ImageSheet(props: {
@@ -20,7 +20,7 @@ export function ImageSheet(props: {
   }, [props.target]);
 
   return (
-    <Drawer.Root
+    <Sheet
       open={props.target !== null}
       modal={false}
       disablePointerDismissal
@@ -30,25 +30,20 @@ export function ImageSheet(props: {
       }}
       onOpenChangeComplete={(open) => !open && setShown(null)}
     >
-      <Drawer.Portal>
-        <Drawer.Viewport className="sheet-viewport" data-side={props.side ?? undefined}>
-          <Drawer.Popup className="sheet">
-            <div className="sheet-handle" aria-hidden />
-            <Drawer.Title className="sheet-title">画像</Drawer.Title>
-            {shown && (
-              // 別の画像に切り替わったら作り直す
-              <ImageEditor
-                key={`${shown.call.path}:${shown.call.start}`}
-                project={props.project}
-                target={shown}
-                onDone={props.onClose}
-                onGoto={props.onGoto}
-                cancelRef={cancelRef}
-              />
-            )}
-          </Drawer.Popup>
-        </Drawer.Viewport>
-      </Drawer.Portal>
-    </Drawer.Root>
+      <SheetContent side={props.side}>
+        <SheetTitle>画像</SheetTitle>
+        {shown && (
+          // 別の画像に切り替わったら作り直す
+          <ImageEditor
+            key={`${shown.call.path}:${shown.call.start}`}
+            project={props.project}
+            target={shown}
+            onDone={props.onClose}
+            onGoto={props.onGoto}
+            cancelRef={cancelRef}
+          />
+        )}
+      </SheetContent>
+    </Sheet>
   );
 }

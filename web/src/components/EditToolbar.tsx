@@ -1,4 +1,6 @@
 import { type SyntheticEvent, useEffect, useRef, useState } from "react";
+import { Undo2 } from "lucide-react";
+import { Toolbar, ToolbarGap, ToolbarKey } from "./ui/toolbar";
 
 // ソフトキーボード表示中も見えるツールバー（spec 4.2）。押してもエディタのフォーカスを外さない。
 // Android の Chrome は pointerdown を止めても、後から合成する mousedown でフォーカスを移すことがあるので両方止める
@@ -39,6 +41,16 @@ function useShownState(state: SaveState): SaveState {
   return slow ? "saving" : state === "saving" ? before.current : state;
 }
 
+// 「保存」は保存の状態を文言と色で示す（見た目は ui/toolbar の save と tone）。
+// 未保存は自動保存（2 秒）で消えるので、塗りの primary で呼びかけず、記号キーと同じ強さの accent の地にする
+export const SAVE_TONE: Record<SaveState, "quiet" | "accent" | "destructive"> = {
+  clean: "quiet",
+  saving: "quiet",
+  dirty: "accent",
+  conflict: "destructive",
+  error: "destructive",
+};
+
 export function EditToolbar(props: {
   onSave(): void;
   onUndo(): void;
@@ -57,10 +69,11 @@ export function EditToolbar(props: {
   const saveOff =
     props.disabled === true || (state === actual ? props.saveDisabled : state === "clean" || state === "saving" || state === "conflict");
   return (
-    <div className="edit-toolbar" role="toolbar" aria-label="入力補助" data-locked={props.disabled === true}>
-      <button
-        type="button"
-        className="tb-btn tb-save"
+    <Toolbar className="edit-toolbar" aria-label="入力補助" data-locked={props.disabled === true}>
+      <ToolbarKey
+        kind="save"
+        tone={SAVE_TONE[state]}
+        className="tb-save"
         data-state={state}
         {...hold}
         onClick={() => !saveOff && props.onSave()}
@@ -68,16 +81,17 @@ export function EditToolbar(props: {
         aria-label={state === "error" ? "保存できませんでした。もう一度保存する" : undefined}
       >
         {SAVE_TEXT[state]}
-      </button>
-      <button type="button" className="tb-btn" {...hold} onClick={props.onUndo} aria-label="元に戻す" disabled={props.disabled}>
-        ↶
-      </button>
-      <span className="tb-gap" aria-hidden />
+      </ToolbarKey>
+      <ToolbarKey {...hold} onClick={props.onUndo} aria-label="元に戻す" disabled={props.disabled}>
+        <Undo2 />
+      </ToolbarKey>
+      <ToolbarGap />
       {TOOLBAR_CHARS.map((c) => (
-        <button key={c} type="button" className="tb-btn tb-char" {...hold} onClick={() => props.onInsert(c)} disabled={props.disabled}>
+        // 記号キーは残りの幅を分け合う（320px でも右端の " まで収める。広い画面では幅いっぱいに伸ばし、右を空けない）
+        <ToolbarKey key={c} kind="glyph" className="tb-char" {...hold} onClick={() => props.onInsert(c)} disabled={props.disabled}>
           {c}
-        </button>
+        </ToolbarKey>
       ))}
-    </div>
+    </Toolbar>
   );
 }

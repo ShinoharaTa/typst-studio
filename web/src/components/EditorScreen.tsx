@@ -20,7 +20,14 @@ import type { ImageTarget } from "./ImageEditor";
 import { ImageSheet } from "./ImageSheet";
 import { ImagesPane } from "./ImagesPane";
 import { PreviewPane } from "./PreviewPane";
+import { ArrowLeftRight, ChevronLeft, CircleAlert, TriangleAlert, X } from "lucide-react";
+import { Alert } from "./ui/alert";
+import { Badge, BadgeButton } from "./ui/badge";
+import { Button, buttonVariants } from "./ui/button";
+import { Banner, Chip } from "./ui/floating";
+import { TabsList, TabsTrigger } from "./ui/tabs";
 import { useProjectGit } from "./useProjectGit";
+import { cn } from "../lib/cn";
 
 type EditRoute = Extract<Route, { view: "edit" }>;
 type SideTab = Exclude<Tab, "edit">;
@@ -36,7 +43,7 @@ const SAVE_ALERT: Partial<Record<DocSnapshot["state"], string>> = {
 const INITIAL_SNAP: DocSnapshot = { state: "clean", diskChanged: false, removed: false };
 // 保存の失敗のトースト（重ねない・成功したら消すために id を固定する）
 const SAVE_ERROR_TOAST = "save-error";
-// エディタの下端のフェード（styles.css の .editor-wrap::after）の高さ。カーソルの行がその下に入らないようにする
+// エディタの下端のフェード（styles/screen.css の .editor-wrap::after）の高さ。カーソルの行がその下に入らないようにする
 const EDGE_FADE = 12;
 
 interface Jump {
@@ -356,9 +363,13 @@ export function EditorScreen({ route }: { route: EditRoute }) {
 
   const editPane = (
     <section className="pane pane-edit" data-active={shown("edit")} aria-label="編集">
-      {loadError && <p className="notice error">{loadError}</p>}
-      {snap.diskChanged && !conflict && <p className="notice small">ディスク側で変更あり（保存時に確認します）</p>}
-      {snap.removed && !conflict && <p className="notice small error">ディスク上で削除されました（保存時に作り直すか確認します）</p>}
+      {loadError && <Alert variant="destructive">{loadError}</Alert>}
+      {snap.diskChanged && !conflict && <Alert size="sm">ディスク側で変更あり（保存時に確認します）</Alert>}
+      {snap.removed && !conflict && (
+        <Alert variant="destructive" size="sm">
+          ディスク上で削除されました（保存時に作り直すか確認します）
+        </Alert>
+      )}
       <div className="editor-wrap" data-loading={loading}>
         <CodeEditor
           ref={editor}
@@ -382,17 +393,19 @@ export function EditorScreen({ route }: { route: EditRoute }) {
         {cursorDiags.length > 0 && (
           // カーソルのある行の診断（タッチにはホバーが無いので、lint の吹き出しの代わりに出す）。タップで全文。
           // エディタの上に重ねる（出入りでエディタの高さを変えない）
-          <button
+          <Banner
             ref={bandRef}
-            type="button"
-            className={`line-diag ${cursorDiags[0].severity}`}
+            tone={cursorDiags[0].severity === "error" ? "destructive" : "warning"}
+            className={cn("line-diag absolute inset-x-3 bottom-3 z-3 w-auto", diagExpanded && "max-h-[40dvh] overflow-y-auto")}
             data-expanded={diagExpanded}
             onPointerDown={(e) => e.preventDefault()}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => setDiagExpanded((x) => !x)}
           >
-            <span className="line-diag-text">{diagSummary(cursorDiags)}</span>
-          </button>
+            {cursorDiags[0].severity === "error" ? <CircleAlert aria-label="エラー" /> : <TriangleAlert aria-label="警告" />}
+            {/* 2 行で切る（内側の要素で切る。外側で切ると余白に 3 行目がのぞく）。タップで全文 */}
+            <span className={diagExpanded ? "block min-w-0" : "line-clamp-2 min-w-0"}>{diagSummary(cursorDiags)}</span>
+          </Banner>
         )}
       </div>
       <EditToolbar
@@ -428,12 +441,12 @@ export function EditorScreen({ route }: { route: EditRoute }) {
           articleCtx={articleCtx}
         />
       </section>
-      <section className="pane pane-book" data-active={shown("book")} aria-label="本">
+      <section className="pane" data-active={shown("book")} aria-label="本">
         <BookPane project={project} active={shown("book") && pageVisible} onGoto={(f, l, c) => void gotoSource(f, l, c, true)}
           onDiagnostics={setBookDiags}
         />
       </section>
-      <section className="pane pane-images" data-active={shown("images")} aria-label="画像">
+      <section className="pane" data-active={shown("images")} aria-label="画像">
         <ImagesPane
           project={project}
           article={article}
@@ -459,14 +472,14 @@ export function EditorScreen({ route }: { route: EditRoute }) {
         {/* タブはヘッダの中。1 ペインは題の下の段（キーボード表示中は題を隠して「‹」と同じ段）。
             2 ペインはヘッダをペインと同じ 2 列に分ける（題は編集側、タブは右ペイン側の真上） */}
         <div className="topbar-main">
-          <a className="icon-btn" href={formatRoute({ view: "articles", project })} aria-label="記事一覧へ">
-            ‹
+          <a className={buttonVariants({ variant: "ghost", icon: true })} href={formatRoute({ view: "articles", project })} aria-label="記事一覧へ">
+            <ChevronLeft />
           </a>
           <div className="topbar-text">
             <h1 className="topbar-title" title={file}>
               {file === article ? (
                 <>
-                  {articleName.group.length > 0 && <span className="topbar-group">{articleName.group.join(" / ")} / </span>}
+                  {articleName.group.length > 0 && <span className="font-normal text-muted-foreground">{articleName.group.join(" / ")} / </span>}
                   {articleName.name}
                 </>
               ) : (
@@ -476,39 +489,53 @@ export function EditorScreen({ route }: { route: EditRoute }) {
             <div className="topbar-sub">
               {file !== article && (
                 // 記事以外のファイルを開いた後、記事のファイルへ戻る
-                <button
-                  type="button"
-                  className="pill article-pill"
+                // 見た目は小さいピルのまま、押せる範囲を 44px 近くまで広げる
+                <BadgeButton
+                  className="article-pill min-w-0"
                   onClick={() => navigate({ ...routeRef.current, file: article })}
                   aria-label={`記事 ${articleName.name} のファイルへ戻る`}
                 >
-                  記事: {articleName.name}
-                </button>
+                  <span className="truncate">記事: {articleName.name}</span>
+                </BadgeButton>
               )}
               {git && <GitBadge git={git} compact />}
-              {saveAlert && <span className={`save-state save-${saveAlert}`}>{SAVE_ALERT[saveAlert]}</span>}
+              {saveAlert && (
+                <Badge variant="destructive" className={`save-state save-${saveAlert} flex-none`}>
+                  {SAVE_ALERT[saveAlert]}
+                </Badge>
+              )}
             </div>
           </div>
         </div>
         {wide && (
           // 両方のペインに効く操作なので、ペインの境目の真上に置く（入れ替えても位置が変わらない）
-          <button
-            type="button"
+          // 地なしの文字ボタン（押したとき・ホバーだけ面が出る）。タブのピルと見た目を分ける
+          <Button
+            variant="ghost"
+            size="sm"
             className="swap-btn"
             aria-label="編集とプレビューの左右を入れ替える"
             aria-pressed={swapped}
             onClick={() => setPaneOrder(swapped ? "edit-left" : "edit-right")}
           >
-            ⇄ 入れ替え
-          </button>
+            <ArrowLeftRight />
+            入れ替え
+          </Button>
         )}
-        <nav className="view-tabs" aria-label="表示の切り替え">
+        <TabsList className="view-tabs" aria-label="表示の切り替え">
           {(wide ? (["preview", "book", "images"] as const) : (["edit", "preview", "book", "images"] as const)).map((t) => (
-            <button key={t} type="button" className="tab" aria-pressed={(wide ? sideTab : tab) === t} onClick={() => setTab(t)}>
-              <span className="tab-label">{TAB_LABEL[t]}</span>
-            </button>
+            <TabsTrigger
+              key={t}
+              // キーボード表示中（1 ペイン）は「‹」と同じ段に並ぶので、文字を caption にし、幅は文字の長さに応じて分ける（320 幅でも省略しない）
+              className="tab"
+              kbCompact={!wide}
+              active={(wide ? sideTab : tab) === t}
+              onClick={() => setTab(t)}
+            >
+              {TAB_LABEL[t]}
+            </TabsTrigger>
           ))}
-        </nav>
+        </TabsList>
       </header>
 
       <div className="panes">
@@ -518,9 +545,7 @@ export function EditorScreen({ route }: { route: EditRoute }) {
         </div>
         {jump && (
           <div className="chip-wrap">
-            <button
-              type="button"
-              className="chip"
+            <Chip
               onClick={() => {
                 const j = jump;
                 setJump(null);
@@ -528,10 +553,10 @@ export function EditorScreen({ route }: { route: EditRoute }) {
               }}
             >
               ソースへ（{jumpLabel(jump, jump.path === article ? articleName.name : null)}）
-            </button>
-            <button type="button" className="chip chip-close" onClick={() => setJump(null)} aria-label="閉じる">
-              ×
-            </button>
+            </Chip>
+            <Chip icon onClick={() => setJump(null)} aria-label="閉じる">
+              <X />
+            </Chip>
           </div>
         )}
       </div>

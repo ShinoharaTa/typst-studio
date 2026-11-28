@@ -73,7 +73,7 @@ describe("BookPane", () => {
     await act(async () => root.render(<BookPane project="sample-book" active={false} onGoto={() => undefined} onDiagnostics={() => undefined} />));
     for (let i = 0; i < 5; i++) await act(async () => new Promise((r) => setTimeout(r, 0)));
     const summary = host.querySelector<HTMLButtonElement>(".book-summary")!;
-    expect(summary.className).toContain("error");
+    expect(summary.className).toContain("text-destructive");
     expect(summary.dataset.expanded).toBe("false");
     expect(summary.title).toBe(summary.textContent);
     await act(async () => summary.click());

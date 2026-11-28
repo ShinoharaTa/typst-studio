@@ -4,6 +4,13 @@ import { api } from "../api/client";
 import type { ImageCall, ImageList, UploadResult } from "../api/types";
 import { useStudioEvent } from "../lib/hooks";
 import type { ImageTarget } from "./ImageEditor";
+import { CornerDownLeft, Upload } from "lucide-react";
+import { Alert } from "./ui/alert";
+import { Button } from "./ui/button";
+import { EmptyState } from "./ui/empty-state";
+import { List, ListItemContent, ListItemDescription, ListItemMedia, ListItemSplit, ListItemTitle } from "./ui/list";
+import { PanelBar } from "./ui/panel";
+import { Thumb } from "./ui/thumb";
 
 // 画像タブ: 開いているファイルの image( 呼び出しの一覧（記事内の出現順）と、アップロード（spec 4.4 / 4.5）
 export function ImagesPane(props: {
@@ -56,11 +63,13 @@ export function ImagesPane(props: {
   };
 
   return (
-    <div className="images-pane">
-      <div className="pane-bar">
-        <button type="button" className="btn" onClick={() => input.current?.click()} disabled={uploading}>
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
+      {/* アップロードの段は、一覧をスクロールしても上に残す */}
+      <PanelBar className="sticky top-0 z-1">
+        <Button onClick={() => input.current?.click()} disabled={uploading}>
+          <Upload />
           {uploading ? "アップロード中…" : "画像をアップロード"}
-        </button>
+        </Button>
         <input
           ref={input}
           type="file"
@@ -71,61 +80,61 @@ export function ImagesPane(props: {
             if (f) void upload(f);
           }}
         />
-      </div>
+      </PanelBar>
       {uploaded && (
-        <div className="notice">
-          <code className="insert-code">{uploaded.insert}</code>
-          {file === props.article ? (
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => {
-                props.onInsert(uploaded.insert);
-                setUploaded(null);
-              }}
-            >
-              カーソル位置に挿入
-            </button>
-          ) : (
-            <p className="muted small">パスは記事（{props.article}）から見たものです。記事を開いて挿入してください</p>
+        <Alert
+          action={
+            file === props.article ? (
+              <Button
+                variant="primary"
+                onClick={() => {
+                  props.onInsert(uploaded.insert);
+                  setUploaded(null);
+                }}
+              >
+                カーソル位置に挿入
+              </Button>
+            ) : undefined
+          }
+        >
+          <code className="block font-mono text-caption wrap-anywhere">{uploaded.insert}</code>
+          {file !== props.article && (
+            <p className="mt-2 text-caption text-muted-foreground">パスは記事（{props.article}）から見たものです。記事を開いて挿入してください</p>
           )}
-        </div>
+        </Alert>
       )}
-      {!isTyp && <p className="muted pad">.typ ファイルを開くと画像の一覧が出ます</p>}
-      {error && <p className="notice error">{error}</p>}
-      {isTyp && list && list.calls.length === 0 && <p className="muted pad">このファイルに image( はありません</p>}
-      <ul className="list">
+      {!isTyp && <EmptyState>.typ ファイルを開くと画像の一覧が出ます</EmptyState>}
+      {error && <Alert variant="destructive">{error}</Alert>}
+      {isTyp && list && list.calls.length === 0 && <EmptyState>このファイルに image( はありません</EmptyState>}
+      <List className="images-list">
         {list?.calls.map((c) => (
           <li key={c.start}>
-            <div className="img-row">
-              <button
-                type="button"
-                className="img-row-main"
-                onClick={() => (c.editable ? props.onOpen({ call: c, rev: list.rev }) : props.onGoto(c))}
-              >
-                {c.resolved ? (
-                  <img className="img-thumb" src={api.rawUrl(project, c.resolved)} alt="" loading="lazy" />
-                ) : (
-                  <span className="img-thumb img-thumb-none">?</span>
-                )}
-                <span className="img-row-text">
-                  <span className="img-src">{c.src ?? "（式）"}</span>
-                  <span className="muted small">
-                    {c.editable
-                      ? [c.width && `width ${c.width}`, c.height && `height ${c.height}`, c.alt && `alt「${c.alt}」`]
-                          .filter(Boolean)
-                          .join(" ・ ") || "サイズ指定なし"
-                      : "編集不可"}
-                  </span>
-                </span>
-              </button>
-              <button type="button" className="link-btn" onClick={() => props.onGoto(c)}>
-                {c.line} 行
-              </button>
-            </div>
+            {/* 本体（シートを開く）と行番号（ソースへ）の 2 つを押せる */}
+            <ListItemSplit
+              onClick={() => (c.editable ? props.onOpen({ call: c, rev: list.rev }) : props.onGoto(c))}
+              actions={
+                <Button variant="ghost" size="sm" onClick={() => props.onGoto(c)} aria-label={`${c.line} 行目のソースへ`}>
+                  <CornerDownLeft />
+                  {c.line} 行
+                </Button>
+              }
+            >
+              <ListItemMedia>
+                <Thumb src={c.resolved ? api.rawUrl(project, c.resolved) : null} />
+              </ListItemMedia>
+              <ListItemContent>
+                <ListItemTitle className="font-mono">{c.src ?? "（式）"}</ListItemTitle>
+                <ListItemDescription>
+                  {c.editable
+                    ? [c.width && `width ${c.width}`, c.height && `height ${c.height}`, c.alt && `alt「${c.alt}」`].filter(Boolean).join(" ・ ") ||
+                      "サイズ指定なし"
+                    : "編集不可"}
+                </ListItemDescription>
+              </ListItemContent>
+            </ListItemSplit>
           </li>
         ))}
-      </ul>
+      </List>
     </div>
   );
 }
