@@ -13,7 +13,16 @@ scripts/setup.sh
 # 対象リポジトリをプロジェクトとして clone する（既にあればスキップ）
 scripts/add-project.sh <name> <git-url>
 # 例: scripts/add-project.sh sample-book https://github.com/<owner>/<repo>.git
+
+# 同梱のサンプルの本を試す（ローカルのディレクトリはコピーして git init・初回コミットした独立のリポジトリにする）
+scripts/add-project.sh sample-book examples/sample-book
 ```
+
+ローカルのディレクトリから作るときは `typst-studio.toml` があるディレクトリだけを受け付ける。初回コミットの author は `typst-studio <noreply@typst-studio.invalid>`（`LOCAL_AUTHOR_NAME` / `LOCAL_AUTHOR_EMAIL` で変えられる）。
+
+### サンプルの本 `examples/sample-book/`
+
+試用とデモ用の小さな本。文章・画像はすべてダミー。記事 3 本（`articles/author-a/intro/`、`articles/author-a/layout/`、`articles/author-b/`）、プロファイルは `print` と `ebook`。フォントは `scripts/setup.sh` が入れる Noto Sans CJK JP を使う。画像は比率とピクセル数を書いたプレースホルダー（1:1 1200×1200、16:9 1920×1080、4:3 1600×1200、3:4 900×1200、1:1 256×256）で、`examples/sample-book/tools/gen-images.sh` で作り直せる（typst CLI と python3 の標準ライブラリだけを使う）。記事には spec 4.4 の受け入れ条件の形（`image("p")`、`width: 100%`、`width: 70%, alt: "..."`、`width: 32mm`、`height: 8em`、非リテラルの `image(path)`、コメント内・文字列内の `image(`）がそろっている。
 
 置き場所:
 
