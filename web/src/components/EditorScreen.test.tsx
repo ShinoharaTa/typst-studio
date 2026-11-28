@@ -418,12 +418,42 @@ describe("save state", () => {
     };
     await clickSave();
     await until(() => puts.length === 1, "write started");
-    // 保存中は押せない。ヘッダには何も出さない
-    expect(saveBtn().getAttribute("aria-disabled")).toBe("true");
+    // 「保存中」を出すまでは「保存」の見た目のまま（押せる見た目と aria-disabled を合わせる）。ヘッダには何も出さない
+    expect(saveBtn().textContent).toBe("保存");
+    expect(saveBtn().getAttribute("aria-disabled")).toBe("false");
     expect(host.querySelector(".save-state")).toBeNull();
     release();
     await until(() => saveBtn().dataset.state === "clean", "saved");
     expect(host.querySelector(".save-state")).toBeNull();
+  });
+
+  it("shows the save-error toast once per failure streak, and removes it when a save succeeds", async () => {
+    await openEditor();
+    // トーストの置き場は前のテストのものも残っているので、保存の失敗のものだけ数える
+    const toasts = () =>
+      [...document.querySelectorAll("[data-sonner-toast]:not([data-removed='true'])")].filter((e) =>
+        e.textContent?.startsWith("保存できません:"),
+      ).length;
+    type("X");
+    putReply = () => {
+      throw new TypeError("Failed to fetch");
+    };
+    await clickSave();
+    await until(() => saveBtn().dataset.state === "error", "save error");
+    await until(() => toasts() === 1, "toast shown");
+    // 打ち続けて保存が何度失敗しても、トーストは出し直さない・重ねない
+    for (const ch of ["Y", "Z"]) {
+      type(ch);
+      const n = puts.length;
+      await clickSave();
+      await until(() => puts.length === n + 1 && saveBtn().dataset.state === "error", "failed again");
+      for (let i = 0; i < 3; i++) await tick();
+      expect(toasts()).toBe(1);
+    }
+    putReply = null;
+    await clickSave();
+    await until(() => saveBtn().dataset.state === "clean", "saved");
+    await until(() => toasts() === 0, "toast dismissed");
   });
 
   it("marks Save as disabled during a conflict (the dialog decides)", async () => {

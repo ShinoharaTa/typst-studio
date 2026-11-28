@@ -265,6 +265,20 @@ describe("DocSession", () => {
     }
   });
 
+  it("drops an earlier save error when overwriting a disk that already holds the same text", async () => {
+    const t = setup();
+    await t.s.load();
+    t.type("mine");
+    t.failNext(new Error("network down"));
+    await t.s.save();
+    t.failNext(new ConflictError("changed", "rX", "mine", {}));
+    await t.s.save();
+    expect(t.s.snapshot).toMatchObject({ state: "conflict", error: "network down" });
+    expect(await t.s.resolveOverwrite()).toBe(true);
+    expect(t.s.snapshot.state).toBe("clean");
+    expect(t.s.snapshot.error).toBeUndefined();
+  });
+
   it("never runs two writes at once, even when an earlier save's cleanup finishes late", async () => {
     let disk = { content: "a", rev: "r0" };
     let inFlight = 0;

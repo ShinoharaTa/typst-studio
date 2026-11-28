@@ -203,7 +203,8 @@ export class DocSession {
     if (!c) return this.safe;
     this.rev = c.rev;
     this.saved = c.content;
-    this.set({ state: this.dirty ? "dirty" : "clean", conflict: undefined, diskChanged: false });
+    // 前の保存の失敗も消す（ディスクが手元と同じなら書かずに終わり、失敗の表示だけが残る）
+    this.set({ state: this.dirty ? "dirty" : "clean", conflict: undefined, diskChanged: false, error: undefined });
     return this.save();
   }
 

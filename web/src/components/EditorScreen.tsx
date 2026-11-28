@@ -33,6 +33,9 @@ const SAVE_ALERT: Partial<Record<DocSnapshot["state"], string>> = {
   conflict: "衝突",
   error: "保存できません",
 };
+const INITIAL_SNAP: DocSnapshot = { state: "clean", diskChanged: false, removed: false };
+// 保存の失敗のトースト（重ねない・成功したら消すために id を固定する）
+const SAVE_ERROR_TOAST = "save-error";
 // エディタの下端のフェード（styles.css の .editor-wrap::after）の高さ。カーソルの行がその下に入らないようにする
 const EDGE_FADE = 12;
 
@@ -69,7 +72,7 @@ export function EditorScreen({ route }: { route: EditRoute }) {
   useEffect(() => writeLastEdit({ project, article, file }), [project, article, file]);
   const editor = useRef<CodeEditorHandle>(null);
   const session = useRef<DocSession | null>(null);
-  const [snap, setSnap] = useState<DocSnapshot>({ state: "clean", diskChanged: false, removed: false });
+  const [snap, setSnap] = useState<DocSnapshot>(INITIAL_SNAP);
   const memory = useRef<MemorySync | null>(null);
   const [bookDiags, setBookDiags] = useState<Diagnostic[]>([]);
   const [loading, setLoading] = useState(true);
@@ -121,6 +124,8 @@ export function EditorScreen({ route }: { route: EditRoute }) {
   useEffect(() => {
     setLoading(true);
     setLoadError(null);
+    // 前のファイルの保存中・失敗の表示を持ち越さない
+    setSnap(INITIAL_SNAP);
     // 入力 300ms 後に未保存の内容をプレビューへ。保存が済んだらディスクの内容に戻す
     const mem = new MemorySync({
       set: (content) => api.previewMemory(project, file, content).catch(() => undefined),
@@ -229,8 +234,17 @@ export function EditorScreen({ route }: { route: EditRoute }) {
     };
   }, [project, article, startPreview, applyStatus]);
 
+  // 失敗のトーストは、失敗していない → 失敗に変わったときの 1 回だけ（続く失敗は「再試行」とヘッダが示す）。
+  // 失敗が消えたら（保存できた・元に戻したなど）トーストも消す
+  const lastError = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (snap.state === "error" && snap.error) toast.error(`保存できません: ${snap.error}`);
+    const was = lastError.current;
+    lastError.current = snap.error;
+    if (snap.error === undefined) {
+      if (was !== undefined) toast.dismiss(SAVE_ERROR_TOAST);
+    } else if (was === undefined && snap.state === "error") {
+      toast.error(`保存できません: ${snap.error}`, { id: SAVE_ERROR_TOAST });
+    }
   }, [snap.state, snap.error]);
 
   // 裏に回る・閉じるときは待たずに保存する

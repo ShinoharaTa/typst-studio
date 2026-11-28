@@ -9,21 +9,34 @@ type SaveState = "clean" | "dirty" | "saving" | "conflict" | "error";
 const SAVE_TEXT: Record<SaveState, string> = { clean: "保存済", dirty: "保存", saving: "保存中", conflict: "衝突", error: "再試行" };
 // 「保存中」は、保存がこれより長く掛かったときだけ出す（すぐ終わる保存で 3 つの文言が続けて入れ替わらないように）
 export const SAVING_SHOW_MS = 400;
+// 出した「保存中」は、保存が先に終わってもこの間は保つ（一瞬だけ出て消えないように）
+export const SAVING_MIN_MS = 500;
 
-// saving に入ってから SAVING_SHOW_MS の間は、その前の状態のまま見せる
+// saving に入ってから SAVING_SHOW_MS の間は、その前の状態のまま見せる。出した後は SAVING_MIN_MS まで保つ
 function useShownState(state: SaveState): SaveState {
   const before = useRef<SaveState>(state === "saving" ? "dirty" : state);
   const [slow, setSlow] = useState(false);
+  const since = useRef(0);
   useEffect(() => {
-    if (state !== "saving") {
-      before.current = state;
+    if (state === "saving") {
+      if (slow) return;
+      const t = setTimeout(() => {
+        since.current = Date.now();
+        setSlow(true);
+      }, SAVING_SHOW_MS);
+      return () => clearTimeout(t);
+    }
+    before.current = state;
+    if (!slow) return;
+    const left = since.current + SAVING_MIN_MS - Date.now();
+    if (left <= 0) {
       setSlow(false);
       return;
     }
-    const t = setTimeout(() => setSlow(true), SAVING_SHOW_MS);
+    const t = setTimeout(() => setSlow(false), left);
     return () => clearTimeout(t);
-  }, [state]);
-  return state === "saving" && !slow ? before.current : state;
+  }, [state, slow]);
+  return slow ? "saving" : state === "saving" ? before.current : state;
 }
 
 export function EditToolbar(props: {
@@ -38,8 +51,11 @@ export function EditToolbar(props: {
 }) {
   const hold = { onPointerDown: keep, onMouseDown: keep };
   // 保存済みでも disabled にはしない（disabled のボタンは押したときにフォーカスを奪う）。aria-disabled で示す
-  const saveOff = props.saveDisabled || props.disabled === true;
-  const state = useShownState(props.saveState ?? (props.saveDisabled ? "clean" : "dirty"));
+  const actual = props.saveState ?? (props.saveDisabled ? "clean" : "dirty");
+  const state = useShownState(actual);
+  // 見た目が実際の状態とずれている間（「保存中」を出す前・保ちの間）は、見た目に合わせる
+  const saveOff =
+    props.disabled === true || (state === actual ? props.saveDisabled : state === "clean" || state === "saving" || state === "conflict");
   return (
     <div className="edit-toolbar" role="toolbar" aria-label="入力補助" data-locked={props.disabled === true}>
       <button
