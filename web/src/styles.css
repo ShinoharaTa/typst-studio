@@ -861,7 +861,7 @@ code {
   color: var(--accent-text);
 }
 
-.tb-save:disabled {
+.tb-save[aria-disabled="true"] {
   background: transparent;
   color: var(--muted);
   font-weight: 400;

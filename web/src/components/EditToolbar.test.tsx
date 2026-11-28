@@ -32,4 +32,26 @@ describe("EditToolbar", () => {
     await act(async () => root.unmount());
     host.remove();
   });
+
+  it("marks Save as aria-disabled (not disabled) when there is nothing to save, so pressing it keeps the focus", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const onSave = vi.fn();
+    await act(async () => root.render(<EditToolbar onSave={onSave} onUndo={() => undefined} onInsert={() => undefined} saveDisabled />));
+    const save = host.querySelector<HTMLButtonElement>(".tb-save")!;
+    expect(save.disabled).toBe(false);
+    expect(save.getAttribute("aria-disabled")).toBe("true");
+    const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    save.dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(true);
+    await act(async () => save.click());
+    expect(onSave).not.toHaveBeenCalled();
+    await act(async () => root.render(<EditToolbar onSave={onSave} onUndo={() => undefined} onInsert={() => undefined} saveDisabled={false} />));
+    expect(save.getAttribute("aria-disabled")).toBe("false");
+    await act(async () => save.click());
+    expect(onSave).toHaveBeenCalledTimes(1);
+    await act(async () => root.unmount());
+    host.remove();
+  });
 });

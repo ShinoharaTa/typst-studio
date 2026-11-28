@@ -14,9 +14,11 @@ export function EditToolbar(props: {
   disabled?: boolean;
 }) {
   const hold = { onPointerDown: keep, onMouseDown: keep };
+  // 保存済みでも disabled にはしない（disabled のボタンは押したときにフォーカスを奪う）。aria-disabled で示す
+  const saveOff = props.saveDisabled || props.disabled === true;
   return (
     <div className="edit-toolbar" role="toolbar" aria-label="入力補助">
-      <button type="button" className="tb-btn tb-save" {...hold} onClick={props.onSave} disabled={props.saveDisabled || props.disabled}>
+      <button type="button" className="tb-btn tb-save" {...hold} onClick={() => !saveOff && props.onSave()} aria-disabled={saveOff}>
         保存
       </button>
       <button type="button" className="tb-btn" {...hold} onClick={props.onUndo} aria-label="元に戻す" disabled={props.disabled}>
