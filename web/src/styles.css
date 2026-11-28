@@ -772,7 +772,12 @@ code {
   opacity: 0.5;
 }
 
+/* 記号キーは残りの幅を分け合う（375px・360px でも右端の " まで収める）。保存と元に戻すは幅を保つ */
 .tb-char {
+  flex: 1 1 0;
+  min-width: 34px;
+  max-width: 56px;
+  padding: 0;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
